@@ -28,13 +28,6 @@
             -webkit-app-region: no-drag !important;
         }
 
-        /* ===== Fix resize artifacts ===== */
-        body, .sidebar, .main-content, .graph-container, .playlist-view, .recent-cards {
-            will-change: transform;
-            transform: translateZ(0);
-            backface-visibility: hidden;
-        }
-
         /* ===== Window Controls ===== */
         .window-controls {
             position: absolute;
@@ -232,7 +225,7 @@
         .add-track-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
         
         .playlist-table { 
-            width: 100%; border-collapse: separate; border-spacing: 0;
+            width: 100%; border-collapse: separate; border-spacing: 0 2px;
             flex: 1; min-height: 0; display: flex; flex-direction: column;
         }
         .playlist-table thead { flex-shrink: 0; }
@@ -260,17 +253,8 @@
             color: #bbb;
             display: table-cell;
             vertical-align: middle;
-            border-bottom: 1px solid rgba(255,255,255,0.02);
-        }
-        .track-row:hover {
-            background: rgba(255,255,255,0.04);
-        }
-        .track-row.active-track {
-            background: rgba(255,255,255,0.06);
-        }
-        .track-row.active-track td {
-            border-left: 3px solid #fff;
-            padding-left: 13px;
+            background: rgba(255,255,255,0.02);
+            transition: all 0.2s ease;
         }
         .track-row:first-child td:first-child {
             border-top-left-radius: 12px;
@@ -283,7 +267,21 @@
         }
         .track-row:last-child td:last-child {
             border-bottom-right-radius: 12px;
-            border-bottom: none;
+        }
+        .track-row:hover td {
+            background: rgba(255,255,255,0.06);
+        }
+        .track-row.active-track td {
+            background: rgba(255,255,255,0.08);
+            border-left: 3px solid #fff;
+            padding-left: 13px;
+        }
+        .track-row.empty-message td {
+            text-align: center;
+            padding: 60px 20px;
+            color: #555;
+            font-size: 14px;
+            background: transparent !important;
         }
         
         .playlist-table .col-num { width: 50px; color: #555; font-variant-numeric: tabular-nums; }
@@ -295,7 +293,7 @@
             display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
             border-radius: 50%; transition: all 0.2s;
         }
-        .track-row:hover .track-number { background: rgba(255,255,255,0.1); }
+        .track-row:hover .track-number { background: rgba(255,255,255,0.15); }
         .track-row:hover .track-number span { display: none; }
         .track-row:hover .track-number .hover-play {
             display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff;
@@ -326,9 +324,12 @@
             align-items: center; justify-content: center;
             background: rgba(255,255,255,0.02); border-radius: 16px;
             border: 1px dashed rgba(255,255,255,0.08);
+            margin: 0;
+            padding: 0;
         }
         .recent-cards.empty .empty-message {
-            text-align: center; color: #555; font-size: 13px; padding: 20px;
+            text-align: center; color: #555; font-size: 13px; padding: 40px 20px;
+            width: 100%;
         }
         .recent-cards.empty .empty-message i {
             font-size: 32px; margin-bottom: 10px; display: block; opacity: 0.4;
@@ -651,7 +652,7 @@
                     <p>Разработано для <strong>Конкурса в колледже IT TOP</strong> в образовательных целях.</p>
                 </div>
                 <div class="setting-row" style="margin-top:12px;border:none">
-                    <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия 1.0.0</div></div>
+                    <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.0.6</span></div></div>
                 </div>
             </div>
         </div>
@@ -719,6 +720,7 @@
 
     <!-- Audio element -->
     <audio id="audio"></audio>
+    <script src="config.js"></script>
     <script src="renderer.js"></script>
 </body>
 </html>
