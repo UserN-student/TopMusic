@@ -23,7 +23,8 @@
         .volume-slider-container, .player-progress-container, .sort-btn,
         .modal-close, .delete-cat, .window-controls, .window-controls *,
         .playlist-table, .playlist-table *, .song-card, .toggle-switch,
-        .add-track-btn, .track-row {
+        .add-track-btn, .track-row, .track-menu-btn, .context-menu,
+        .sync-item, .playlist-checkbox {
             -webkit-app-region: no-drag !important;
         }
 
@@ -197,6 +198,14 @@
             color: #aaa; font-size: 13px; cursor: pointer; transition: all 0.2s;
         }
         .add-track-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .add-folder-btn {
+            display: flex; align-items: center; gap: 6px;
+            padding: 10px 18px; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+            color: #aaa; font-size: 13px; cursor: pointer; transition: all 0.2s;
+            margin-left: 8px;
+        }
+        .add-folder-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
         .playlist-table {
             width: 100%; table-layout: fixed; border-collapse: collapse;
@@ -211,9 +220,10 @@
         .playlist-table thead th.col-title { width: auto; }
         .playlist-table thead th.col-artist { width: 140px; }
         .playlist-table thead th.col-duration { width: 70px; text-align: right; }
+        .playlist-table thead th.col-actions { width: 40px; text-align: right; }
         .playlist-table thead th:hover { color: #999; }
 
-        .track-row { cursor: pointer; transition: all 0.2s ease; }
+        .track-row { cursor: pointer; transition: all 0.2s ease; border-radius: 8px; margin: 2px 0; }
         .track-row td {
             padding: 14px 16px; font-size: 14px; color: #bbb;
             background: rgba(255,255,255,0.02); transition: all 0.2s ease;
@@ -223,6 +233,7 @@
         .track-row .col-num { width: 50px; color: #555; font-variant-numeric: tabular-nums; text-align: center; }
         .track-row .col-artist { width: 140px; color: #888; }
         .track-row .col-duration { width: 70px; text-align: right; color: #666; font-variant-numeric: tabular-nums; }
+        .track-row .col-actions { width: 40px; text-align: right; padding-right: 8px; }
         .track-row:hover td { background: rgba(255,255,255,0.06); }
         .track-row.active-track td { background: rgba(255,255,255,0.08); color: #fff; }
         .track-row.empty-message td {
@@ -241,6 +252,33 @@
         .track-number .hover-play { display: none; }
         .track-row.active-track .track-number span { display: none; }
         .track-row.active-track .track-number .hover-play { display: flex; }
+        
+        /* Кнопка меню (троеточие) */
+        .track-menu-btn {
+            background: none; border: none; color: #666; cursor: pointer;
+            padding: 6px; border-radius: 6px; font-size: 14px;
+            transition: all 0.15s ease; display: flex; align-items: center; justify-content: center;
+        }
+        .track-menu-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .track-menu-btn:active { transform: scale(0.95); }
+        
+        /* Контекстное меню */
+        .context-menu {
+            position: fixed; background: #1a1a1a; border: 1px solid #2a2a2a;
+            border-radius: 12px; padding: 6px; min-width: 200px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 10001;
+            opacity: 0; visibility: hidden; transform: translateY(-8px);
+            transition: all 0.2s ease;
+        }
+        .context-menu.open { opacity: 1; visibility: visible; transform: translateY(0); }
+        .context-item {
+            display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+            border-radius: 8px; cursor: pointer; font-size: 13px; color: #ccc;
+            transition: background 0.15s;
+        }
+        .context-item:hover { background: rgba(255,255,255,0.08); }
+        .context-item i { width: 16px; text-align: center; font-size: 12px; }
+        .context-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
 
         .recent-section {
             padding: 0 32px 16px 32px; margin-bottom: 100px;
@@ -494,6 +532,91 @@
         .modal-btn-create { background: #fff; color: #000; }
         .modal-btn-create:hover { background: #e0e0e0; }
         .modal-btn-create:disabled { background: #333; color: #666; cursor: not-allowed; }
+        
+        /* Стили для модальных окон новых функций */
+        .modal-body { margin: 16px 0; }
+        .modal-text { font-size: 14px; color: #aaa; line-height: 1.6; }
+        .modal-text strong { color: #fff; }
+        
+        /* Список плейлистов в модальном окне */
+        .playlist-list { max-height: 200px; overflow-y: auto; margin: 12px 0; }
+        .playlist-item {
+            display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+            background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 8px;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .playlist-item:hover { background: rgba(255,255,255,0.06); }
+        .playlist-checkbox {
+            width: 18px; height: 18px; border: 2px solid #555; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            transition: all 0.15s; flex-shrink: 0;
+        }
+        .playlist-checkbox.checked { background: #fff; border-color: #fff; }
+        .playlist-checkbox.checked::after {
+            content: '✓'; color: #000; font-size: 12px; font-weight: bold;
+        }
+        .playlist-name { font-size: 13px; color: #ccc; flex: 1; }
+        .playlist-count { font-size: 11px; color: #666; }
+        
+        /* Синхронизация */
+        .sync-section { margin: 16px 0; }
+        .sync-btn {
+            width: 100%; padding: 12px; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+            color: #aaa; font-size: 14px; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .sync-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .sync-list { margin-top: 16px; }
+        .sync-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px;
+            background: rgba(255,255,255,0.03); border-radius: 10px; margin-bottom: 8px;
+        }
+        .sync-item-name { font-size: 13px; font-weight: 500; color: #fff; min-width: 120px; }
+        .sync-item-path { font-size: 12px; color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sync-item-count { font-size: 12px; color: #666; background: rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 6px; }
+        
+        /* Настройка категорий для синхронизации */
+        .sync-categories { margin-top: 16px; }
+        .sync-categories-title { font-size: 13px; color: #aaa; margin-bottom: 8px; }
+        .category-toggle {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 6px;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .category-toggle:hover { background: rgba(255,255,255,0.06); }
+        .category-toggle input { cursor: pointer; }
+        .category-toggle span { font-size: 13px; color: #ccc; }
+        .category-toggle.default { opacity: 0.7; cursor: not-allowed; }
+        
+        /* Модальное окно недостающих файлов */
+        .missing-file-icon {
+            font-size: 48px; color: #e81123; margin-bottom: 16px; display: block;
+        }
+        .missing-file-path {
+            font-size: 12px; color: #888; background: rgba(255,255,255,0.05);
+            padding: 10px 14px; border-radius: 8px; margin: 12px 0;
+            word-break: break-all; font-family: monospace;
+        }
+        .missing-file-actions { display: flex; gap: 10px; margin-top: 20px; }
+        .missing-file-btn {
+            flex: 1; padding: 12px; border-radius: 10px; font-size: 14px;
+            font-weight: 500; cursor: pointer; transition: all 0.2s;
+            font-family: 'Inter', sans-serif; border: none; display: flex;
+            align-items: center; justify-content: center; gap: 8px;
+        }
+        .missing-file-btn-copy { background: rgba(255,255,255,0.06); color: #888; }
+        .missing-file-btn-copy:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .missing-file-btn-ok { background: #fff; color: #000; }
+        .missing-file-btn-ok:hover { background: #e0e0e0; }
+        
+        /* Детали песни */
+        .track-details-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
+        .track-details-label { font-size: 12px; color: #666; }
+        .track-details-value { font-size: 13px; color: #ccc; font-weight: 500; }
+        
+        /* SVG иконка шестерёнки */
+        .svg-icon { width: 16px; height: 16px; fill: currentColor; }
     </style>
 </head>
 <body>
@@ -565,9 +688,14 @@
         <div class="playlist-view" id="playlistView">
             <div class="playlist-header">
                 <span style="color:#666;font-size:13px" id="playlistCount">0 треков</span>
-                <button class="add-track-btn" id="addTrackBtn">
-                    <i class="fa-solid fa-plus"></i> Добавить песню
-                </button>
+                <div style="display:flex;gap:8px">
+                    <button class="add-track-btn" id="addTrackBtn">
+                        <i class="fa-solid fa-plus"></i> Добавить песню
+                    </button>
+                    <button class="add-folder-btn" id="addFolderBtn">
+                        <i class="fa-solid fa-folder-open"></i> Добавить папку
+                    </button>
+                </div>
             </div>
             <table class="playlist-table">
                 <thead>
@@ -576,6 +704,7 @@
                         <th class="col-title">Название</th>
                         <th class="col-artist">Тип файла</th>
                         <th class="col-duration"><i class="fa-regular fa-clock" style="margin-right:4px;"></i>Время</th>
+                        <th class="col-actions"></th>
                     </tr>
                 </thead>
                 <tbody id="playlistBody"></tbody>
@@ -600,7 +729,7 @@
                     <p>Разработано для <strong>Конкурса в колледже IT TOP</strong> в образовательных целях.</p>
                 </div>
                 <div class="setting-row" style="margin-top:12px;border:none">
-                    <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.0.6</span></div></div>
+                    <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.0.8</span></div></div>
                 </div>
             </div>
         </div>
@@ -649,6 +778,22 @@
         </div>
     </main>
 
+    <!-- Контекстное меню трека -->
+    <div class="context-menu" id="trackContextMenu">
+        <div class="context-item" data-action="details">
+            <i class="fa-solid fa-circle-info"></i><span>Подробнее</span>
+        </div>
+        <div class="context-item" data-action="playlist">
+            <i class="fa-solid fa-list"></i><span>Добавить в плейлист</span>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-item" data-action="sync">
+            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.66,6.32L5.27,5.35c-0.22-0.08-0.47,0-0.59,0.22L2.76,8.87 C2.64,9.08,2.7,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+            <span>Синхронизация</span>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Новая категория -->
     <div class="modal-overlay" id="modalOverlay">
         <div class="modal-box">
             <div class="modal-header">
@@ -659,6 +804,85 @@
             <div class="modal-actions">
                 <button class="modal-btn modal-btn-cancel" id="modalCancel">Отмена</button>
                 <button class="modal-btn modal-btn-create" id="createBtn" disabled>Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Детали песни -->
+    <div class="modal-overlay" id="detailsModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Детали трека</h3>
+                <button class="modal-close" data-modal="detailsModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="track-details-grid" id="trackDetailsContent"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" data-modal="detailsModal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Добавить в плейлист -->
+    <div class="modal-overlay" id="playlistModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Добавить в плейлист</h3>
+                <button class="modal-close" data-modal="playlistModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="playlist-list" id="playlistListContent"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" data-modal="playlistModal">Отмена</button>
+                <button class="modal-btn modal-btn-create" id="addToPlaylistBtn">Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Синхронизация -->
+    <div class="modal-overlay" id="syncModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Синхронизация</h3>
+                <button class="modal-close" data-modal="syncModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <button class="sync-btn" id="syncFolderBtn">
+                    <i class="fa-solid fa-folder-plus"></i> Выбрать папку для синхронизации
+                </button>
+                <div class="sync-list" id="syncListContent"></div>
+                <div class="sync-categories">
+                    <div class="sync-categories-title">Добавлять песни в категории:</div>
+                    <div id="syncCategoriesContent"></div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" data-modal="syncModal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Недостающий файл -->
+    <div class="modal-overlay" id="missingFileModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Файл не найден</h3>
+                <button class="modal-close" data-modal="missingFileModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <i class="fa-solid fa-circle-exclamation missing-file-icon"></i>
+                <p class="modal-text">Песня <strong id="missingFileName">название</strong> не найдена по пути:</p>
+                <div class="missing-file-path" id="missingFilePath">/path/to/file.mp3</div>
+                <p class="modal-text" style="font-size:12px;color:#666">Файл будет удалён из библиотеки.</p>
+            </div>
+            <div class="missing-file-actions">
+                <button class="missing-file-btn missing-file-btn-copy" id="copyMissingPathBtn">
+                    <svg class="svg-icon" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                    Копировать путь
+                </button>
+                <button class="missing-file-btn missing-file-btn-ok" id="okMissingFileBtn">Понятно...</button>
             </div>
         </div>
     </div>

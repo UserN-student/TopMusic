@@ -23,6 +23,7 @@ const playlistBody = document.getElementById('playlistBody');
 const playlistCount = document.getElementById('playlistCount');
 const recentCards = document.getElementById('recentCards');
 const addTrackBtn = document.getElementById('addTrackBtn');
+const addFolderBtn = document.getElementById('addFolderBtn');
 const addCategoryBtn = document.getElementById('addCategoryBtn');
 const sortBtn = document.getElementById('sortBtn');
 const sortDropdown = document.getElementById('sortDropdown');
@@ -35,7 +36,27 @@ const categoryInput = document.getElementById('categoryInput');
 const categoriesList = document.getElementById('categoriesList');
 const appVersionEl = document.getElementById('appVersion');
 
+// Новые элементы
+const trackContextMenu = document.getElementById('trackContextMenu');
+const detailsModal = document.getElementById('detailsModal');
+const playlistModal = document.getElementById('playlistModal');
+const syncModal = document.getElementById('syncModal');
+const missingFileModal = document.getElementById('missingFileModal');
+const trackDetailsContent = document.getElementById('trackDetailsContent');
+const playlistListContent = document.getElementById('playlistListContent');
+const syncListContent = document.getElementById('syncListContent');
+const syncCategoriesContent = document.getElementById('syncCategoriesContent');
+const addToPlaylistBtn = document.getElementById('addToPlaylistBtn');
+const syncFolderBtn = document.getElementById('syncFolderBtn');
+const copyMissingPathBtn = document.getElementById('copyMissingPathBtn');
+const okMissingFileBtn = document.getElementById('okMissingFileBtn');
+const missingFileNameEl = document.getElementById('missingFileName');
+const missingFilePathEl = document.getElementById('missingFilePath');
+
+// Данные
 let tracks = [];
+let playlists = {}; // { id: { name, trackPaths: Set } }
+let syncConfigs = []; // { id, path, categories: [] }
 let currentIndex = -1;
 let isPlaying = false;
 let isShuffle = false;
@@ -46,16 +67,29 @@ let progressInterval = null;
 let currentPage = 'home';
 let customCategories = [];
 let categoryCounter = 0;
+let selectedTrackIndex = null; // для контекстного меню
+let selectedPlaylists = new Set(); // для модального окна плейлистов
 
-function init() {
+// Инициализация
+async function init() {
   if (appVersionEl && window.appConfig) appVersionEl.textContent = window.appConfig.version;
   audio.volume = lastVolume;
   updateVolumeUI();
+  
+  // Загрузка данных
+  await loadData();
+  
   renderRecent();
+  renderSyncList();
+  renderSyncCategories();
   setupEventListeners();
+  
+  // Проверка файлов при запуске
+  await checkMissingFiles();
 }
 
 function setupEventListeners() {
+  // Управление окном
   document.getElementById('minimizeBtn').onclick = () => window.electronAPI?.windowMinimize();
   document.getElementById('maximizeBtn').onclick = async () => {
     if (window.electronAPI?.windowMaximize) {
@@ -66,9 +100,12 @@ function setupEventListeners() {
   };
   document.getElementById('closeBtn').onclick = () => window.electronAPI?.windowClose();
 
+  // Кнопки добавления
   addTrackBtn?.addEventListener('click', addFiles);
+  addFolderBtn?.addEventListener('click', addFolder);
   addCategoryBtn.addEventListener('click', openModal);
 
+  // Плеер
   playBtn.onclick = togglePlay;
   prevBtn.onclick = handlePrev;
   nextBtn.onclick = handleNext;
@@ -76,17 +113,21 @@ function setupEventListeners() {
   volumeContainer.onclick = handleVolumeClick;
   volumeIcon.onclick = toggleMute;
   
+  // Сортировка
   sortBtn?.addEventListener('click', (e) => { e.stopPropagation(); sortDropdown.classList.toggle('open'); });
   sortOptions.forEach(opt => opt.onclick = () => handleSort(opt));
   
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.sort-container')) sortDropdown.classList.remove('open');
+    if (!e.target.closest('.track-menu-btn') && !e.target.closest('.context-menu')) {
+      trackContextMenu.classList.remove('open');
+    }
   });
   
-  modalClose?.addEventListener('click', closeModal);
-  modalCancel?.addEventListener('click', closeModal);
-  modalOverlay?.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+  // Модальные окна
+  setupModalListeners();
   
+  // Категория
   categoryInput?.addEventListener('input', () => {
     if (createBtn) createBtn.disabled = categoryInput.value.trim().length === 0;
   });
@@ -96,13 +137,16 @@ function setupEventListeners() {
   });
   createBtn?.addEventListener('click', createCategory);
   
+  // Плеер контролы
   likeBtn.onclick = toggleLike;
   shuffleBtn.onclick = toggleShuffle;
   repeatBtn.onclick = toggleRepeat;
   
+  // Аудио
   audio.onended = handleTrackEnded;
   document.addEventListener('keydown', handleKeyDown);
   
+  // Resize fix
   let resizeTimeout;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimeout);
@@ -110,6 +154,87 @@ function setupEventListeners() {
       document.body.style.transform = 'translateZ(0)';
       setTimeout(() => document.body.style.transform = '', 50);
     }, 100);
+  });
+}
+
+function setupModalListeners() {
+  // Закрытие по кнопкам
+  document.querySelectorAll('.modal-close, .modal-btn-cancel').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const modalId = e.currentTarget.dataset.modal;
+      if (modalId) closeModalById(modalId);
+      else closeModal();
+    });
+  });
+  
+  // Закрытие по оверлею
+  [detailsModal, playlistModal, syncModal, missingFileModal].forEach(modal => {
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) closeModalById(modal.id);
+    });
+  });
+  
+  // Контекстное меню трека
+  document.querySelectorAll('.context-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      const action = e.currentTarget.dataset.action;
+      handleContextMenuAction(action);
+      trackContextMenu.classList.remove('open');
+    });
+  });
+  
+  // Плейлисты - чекбоксы
+  playlistListContent?.addEventListener('click', (e) => {
+    const checkbox = e.target.closest('.playlist-checkbox');
+    if (checkbox) {
+      const playlistId = checkbox.dataset.playlistId;
+      checkbox.classList.toggle('checked');
+      if (checkbox.classList.contains('checked')) {
+        selectedPlaylists.add(playlistId);
+      } else {
+        selectedPlaylists.delete(playlistId);
+      }
+    }
+  });
+  
+  // Добавить в плейлист
+  addToPlaylistBtn?.addEventListener('click', () => {
+    if (selectedTrackIndex !== null && selectedTrackIndex < tracks.length) {
+      const trackPath = tracks[selectedTrackIndex].path;
+      selectedPlaylists.forEach(playlistId => {
+        if (playlists[playlistId]) {
+          playlists[playlistId].trackPaths.add(trackPath);
+        }
+      });
+      saveData();
+      closeModalById('playlistModal');
+    }
+  });
+  
+  // Синхронизация - выбор папки
+  syncFolderBtn?.addEventListener('click', async () => {
+    const folder = await window.electronAPI?.openFolder();
+    if (folder) {
+      await syncFolder(folder);
+    }
+  });
+  
+  // Копировать путь недостающего файла
+  copyMissingPathBtn?.addEventListener('click', () => {
+    const path = missingFilePathEl.textContent;
+    navigator.clipboard?.writeText(path).then(() => {
+      copyMissingPathBtn.innerHTML = '<i class="fa-solid fa-check"></i> Скопировано!';
+      setTimeout(() => {
+        copyMissingPathBtn.innerHTML = '<svg class="svg-icon" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Копировать путь';
+      }, 2000);
+    });
+  });
+  
+  // ОК для недостающего файла
+  okMissingFileBtn?.addEventListener('click', () => {
+    const path = missingFilePathEl.textContent;
+    removeTrackByPath(path);
+    closeModalById('missingFileModal');
   });
 }
 
@@ -127,7 +252,7 @@ async function addFiles() {
     tracks.push({
       path: file,
       name: name,
-      ext: ext, // ← Теперь храним расширение
+      ext: ext,
       duration: null,
       dateAdded: Date.now(),
       liked: false
@@ -137,6 +262,82 @@ async function addFiles() {
   renderAll();
   loadTrackDurations();
   if (currentIndex === -1 && tracks.length > 0) loadTrack(0);
+  saveData();
+}
+
+async function addFolder() {
+  if (!window.electronAPI?.openFolder) return;
+  
+  const folder = await window.electronAPI.openFolder();
+  if (!folder) return;
+  
+  const files = await window.electronAPI?.getAudioFilesInFolder?.(folder);
+  if (!files?.length) return;
+  
+  files.forEach(file => {
+    const fileName = file.split(/[\\/]/).pop();
+    const name = fileName.replace(/\.[^.]+$/, '');
+    const ext = fileName.split('.').pop().toUpperCase();
+    // Проверяем, нет ли уже такого трека
+    if (!tracks.some(t => t.path === file)) {
+      tracks.push({
+        path: file,
+        name: name,
+        ext: ext,
+        duration: null,
+        dateAdded: Date.now(),
+        liked: false
+      });
+    }
+  });
+  
+  renderAll();
+  loadTrackDurations();
+  if (currentIndex === -1 && tracks.length > 0) loadTrack(0);
+  saveData();
+}
+
+async function syncFolder(folderPath) {
+  const files = await window.electronAPI?.getAudioFilesInFolder?.(folderPath);
+  if (!files?.length) return;
+  
+  // Создаём конфигурацию синхронизации
+  const syncId = `sync-${Date.now()}`;
+  const syncConfig = {
+    id: syncId,
+    path: folderPath,
+    categories: ['all-songs'] // по умолчанию только "Все песни"
+  };
+  syncConfigs.push(syncConfig);
+  
+  // Добавляем треки
+  let added = 0;
+  files.forEach(file => {
+    if (!tracks.some(t => t.path === file)) {
+      const fileName = file.split(/[\\/]/).pop();
+      const name = fileName.replace(/\.[^.]+$/, '');
+      const ext = fileName.split('.').pop().toUpperCase();
+      tracks.push({
+        path: file,
+        name: name,
+        ext: ext,
+        duration: null,
+        dateAdded: Date.now(),
+        liked: false,
+        synced: syncId
+      });
+      added++;
+    }
+  });
+  
+  renderAll();
+  renderSyncList();
+  renderSyncCategories();
+  loadTrackDurations();
+  saveData();
+  
+  // Показываем уведомление (опционально)
+  console.log(`Синхронизация: добавлено ${added} треков`);
 }
 
 function addDemoTracks() {
@@ -154,17 +355,25 @@ function addDemoTracks() {
   renderAll();
 }
 
-// ===== Утилита: получить текст типа файла =====
+// ===== Утилиты =====
 function getFileTypeText(ext) {
   if (!ext) return 'Файл';
   return `${ext}-файл`;
 }
 
+function formatTime(sec) {
+  if (!sec || isNaN(sec)) return '0:00';
+  return `${Math.floor(sec / 60)}:${Math.floor(sec % 60).toString().padStart(2, '0')}`;
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
+}
+
 // ===== Рендеринг =====
 function renderPlaylist() {
-    
   if (!tracks.length) {
-    playlistBody.innerHTML = `<tr class="track-row empty-message"><td colspan="4">Нет треков. Нажмите "Добавить песню"</td></tr>`;
+    playlistBody.innerHTML = `<tr class="track-row empty-message"><td colspan="5">Нет треков. Нажмите "Добавить песню"</td></tr>`;
     playlistCount.textContent = '0 треков';
     return;
   }
@@ -190,17 +399,36 @@ function renderPlaylist() {
       <td class="col-title">${escapeHtml(track.name)}</td>
       <td class="col-artist">${fileType}</td>
       <td class="col-duration">${duration}</td>
+      <td class="col-actions">
+        <button class="track-menu-btn" data-index="${i}"><i class="fa-solid fa-ellipsis"></i></button>
+      </td>
     `;
     
-    tr.onclick = () => {
+    // Клик по строке - воспроизведение
+    tr.querySelector('.col-title').parentElement.onclick = () => {
       const idx = parseInt(tr.dataset.index);
       currentIndex = idx;
       loadTrack(idx);
       play();
     };
     
+    // Клик по кнопке меню
+    const menuBtn = tr.querySelector('.track-menu-btn');
+    menuBtn.onclick = (e) => {
+      e.stopPropagation();
+      selectedTrackIndex = parseInt(tr.dataset.index);
+      showContextMenu(e, menuBtn);
+    };
+    
     playlistBody.appendChild(tr);
   });
+}
+
+function showContextMenu(event, button) {
+  const rect = button.getBoundingClientRect();
+  trackContextMenu.style.left = `${rect.right + 8}px`;
+  trackContextMenu.style.top = `${rect.top}px`;
+  trackContextMenu.classList.add('open');
 }
 
 function renderRecent() {
@@ -277,7 +505,7 @@ function loadTrack(index) {
   
   audio.src = track.path;
   trackNameEl.textContent = track.name;
-  trackArtistEl.textContent = getFileTypeText(track.ext); // ← Показываем тип файла
+  trackArtistEl.textContent = getFileTypeText(track.ext);
   totalTimeEl.textContent = track.duration ? formatTime(track.duration) : '--:--';
   
   document.querySelectorAll('.track-row').forEach(tr => {
@@ -292,6 +520,7 @@ function loadTrack(index) {
   updateRecentlyPlaying();
 }
 
+// ===== Плеер =====
 function play() {
   if (currentIndex === -1) return;
   audio.play().catch(() => {});
@@ -360,6 +589,7 @@ function handleProgressClick(e) {
   audio.currentTime = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * audio.duration;
 }
 
+// ===== Сортировка =====
 function handleSort(option) {
   sortOptions.forEach(o => o.classList.remove('active'));
   option.classList.add('active');
@@ -380,6 +610,7 @@ function sortTracks(type) {
   }
 }
 
+// ===== Контролы =====
 function toggleShuffle() { isShuffle = !isShuffle; shuffleBtn.classList.toggle('active', isShuffle); }
 function toggleRepeat() {
   repeatMode = (repeatMode + 1) % 3;
@@ -395,6 +626,7 @@ function toggleLike() {
   const icon = likeBtn.querySelector('i');
   icon.className = tracks[currentIndex].liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
   icon.style.color = tracks[currentIndex].liked ? '#fff' : '';
+  saveData();
 }
 
 function handleVolumeClick(e) {
@@ -417,6 +649,7 @@ function updateVolumeUI() {
   else volumeIcon.className = 'fa-solid fa-volume-high volume-icon';
 }
 
+// ===== Навигация =====
 window.switchPage = function(el) {
   document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
   el.classList.add('active');
@@ -448,10 +681,15 @@ window.switchPage = function(el) {
   sortDropdown?.classList.remove('open');
 };
 
+// ===== Категории =====
 function openModal() { modalOverlay.classList.add('open'); setTimeout(() => categoryInput?.focus(), 200); }
 function closeModal() {
   modalOverlay.classList.remove('open');
   if (categoryInput) { categoryInput.value = ''; createBtn.disabled = true; }
+}
+function closeModalById(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.remove('open');
 }
 
 function createCategory() {
@@ -470,6 +708,7 @@ function createCategory() {
   catEl.querySelector('.delete-cat').onclick = (e) => { e.stopPropagation(); deleteCategory(catId, catEl); };
   categoriesList?.appendChild(catEl);
   closeModal();
+  saveData();
 }
 
 function deleteCategory(catId, el) {
@@ -481,18 +720,238 @@ function deleteCategory(catId, el) {
     if (currentPage === 'custom' && document.querySelector('.nav-item.active')?.dataset.catId === catId) {
       window.switchPage(document.querySelector('[data-page="all-songs"]'));
     }
+    saveData();
   }, 250);
 }
 
-function formatTime(sec) {
-  if (!sec || isNaN(sec)) return '0:00';
-  return `${Math.floor(sec / 60)}:${Math.floor(sec % 60).toString().padStart(2, '0')}`;
+// ===== Контекстное меню =====
+function handleContextMenuAction(action) {
+  if (selectedTrackIndex === null || selectedTrackIndex >= tracks.length) return;
+  const track = tracks[selectedTrackIndex];
+  
+  switch(action) {
+    case 'details':
+      showTrackDetails(track);
+      openModalById('detailsModal');
+      break;
+    case 'playlist':
+      showPlaylistSelection();
+      openModalById('playlistModal');
+      break;
+    case 'sync':
+      openModalById('syncModal');
+      break;
+  }
 }
 
-function escapeHtml(str) {
-  const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
+function openModalById(id) {
+  const modal = document.getElementById(id);
+  if (modal) modal.classList.add('open');
 }
 
+function showTrackDetails(track) {
+  const details = [
+    ['Название', track.name],
+    ['Тип файла', getFileTypeText(track.ext)],
+    ['Путь', track.path],
+    ['Длительность', track.duration ? formatTime(track.duration) : 'Неизвестно'],
+    ['Добавлен', new Date(track.dateAdded).toLocaleDateString('ru-RU')],
+    ['В избранном', track.liked ? 'Да' : 'Нет']
+  ];
+  
+  trackDetailsContent.innerHTML = details.map(([label, value]) => 
+    `<span class="track-details-label">${label}</span><span class="track-details-value">${escapeHtml(value)}</span>`
+  ).join('');
+}
+
+function showPlaylistSelection() {
+  // Фильтруем: только пользовательские плейлисты (не "all-songs")
+  const userPlaylists = Object.entries(playlists).filter(([id]) => id !== 'all-songs');
+  
+  if (userPlaylists.length === 0) {
+    playlistListContent.innerHTML = '<p style="color:#666;font-size:13px;text-align:center">Нет созданных плейлистов</p>';
+    return;
+  }
+  
+  playlistListContent.innerHTML = userPlaylists.map(([id, playlist]) => {
+    const isChecked = selectedPlaylists.has(id) ? 'checked' : '';
+    return `
+      <div class="playlist-item">
+        <div class="playlist-checkbox ${isChecked}" data-playlist-id="${id}"></div>
+        <span class="playlist-name">${escapeHtml(playlist.name)}</span>
+        <span class="playlist-count">${playlist.trackPaths.size} треков</span>
+      </div>
+    `;
+  }).join('');
+  
+  selectedPlaylists.clear();
+}
+
+// ===== Синхронизация =====
+function renderSyncList() {
+  if (syncConfigs.length === 0) {
+    syncListContent.innerHTML = '<p style="color:#666;font-size:13px">Нет настроенных синхронизаций</p>';
+    return;
+  }
+  
+  syncListContent.innerHTML = syncConfigs.map(config => {
+    const count = tracks.filter(t => t.synced === config.id).length;
+    return `
+      <div class="sync-item">
+        <span class="sync-item-name">Синхронизация #${syncConfigs.indexOf(config) + 1}</span>
+        <span class="sync-item-path" title="${escapeHtml(config.path)}">${escapeHtml(config.path)}</span>
+        <span class="sync-item-count">${count} песен</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderSyncCategories() {
+  // "Все песни" всегда включена и не удаляется
+  const categories = [
+    { id: 'all-songs', name: 'Все песни', default: true, checked: true }
+  ];
+  
+  // Добавляем пользовательские категории
+  customCategories.forEach(cat => {
+    const isChecked = syncConfigs[0]?.categories?.includes(cat.id) ?? false;
+    categories.push({ id: cat.id, name: cat.name, default: false, checked: isChecked });
+  });
+  
+  syncCategoriesContent.innerHTML = categories.map(cat => `
+    <label class="category-toggle${cat.default ? ' default' : ''}">
+      <input type="checkbox" ${cat.default ? 'checked disabled' : (cat.checked ? 'checked' : '')} 
+             data-category-id="${cat.id}" ${!cat.default ? 'onchange="toggleSyncCategory(this)"' : ''}>
+      <span>${escapeHtml(cat.name)}${cat.default ? ' (по умолчанию)' : ''}</span>
+    </label>
+  `).join('');
+}
+
+window.toggleSyncCategory = function(checkbox) {
+  const catId = checkbox.dataset.categoryId;
+  const isChecked = checkbox.checked;
+  
+  // Обновляем все конфиги синхронизации
+  syncConfigs.forEach(config => {
+    if (isChecked) {
+      if (!config.categories.includes(catId)) {
+        config.categories.push(catId);
+      }
+    } else {
+      config.categories = config.categories.filter(id => id !== catId);
+    }
+  });
+  
+  saveData();
+};
+
+// ===== Проверка недостающих файлов =====
+async function checkMissingFiles() {
+  const missing = [];
+  
+  for (const track of tracks) {
+    const exists = await window.electronAPI?.checkFileExists?.(track.path);
+    if (!exists) {
+      missing.push(track);
+    }
+  }
+  
+  if (missing.length > 0) {
+    // Показываем первый недостающий файл
+    showMissingFileModal(missing[0]);
+  }
+}
+
+function showMissingFileModal(track) {
+  missingFileNameEl.textContent = track.name;
+  missingFilePathEl.textContent = track.path;
+  openModalById('missingFileModal');
+}
+
+function removeTrackByPath(path) {
+  const index = tracks.findIndex(t => t.path === path);
+  if (index !== -1) {
+    tracks.splice(index, 1);
+    if (currentIndex === index) {
+      currentIndex = -1;
+      audio.src = '';
+      trackNameEl.textContent = 'Выберите трек';
+      trackArtistEl.textContent = '—';
+      currentTimeEl.textContent = '0:00';
+      totalTimeEl.textContent = '0:00';
+      progressFill.style.width = '0%';
+      pause();
+    } else if (currentIndex > index) {
+      currentIndex--;
+    }
+    renderAll();
+    saveData();
+  }
+}
+
+// ===== Сохранение/загрузка =====
+async function saveData() {
+  if (!window.electronAPI?.saveData) return;
+  
+  const data = {
+    tracks,
+    playlists,
+    syncConfigs,
+    customCategories,
+    categoryCounter,
+    settings: {
+      volume: lastVolume,
+      isMuted,
+      isShuffle,
+      repeatMode
+    }
+  };
+  
+  await window.electronAPI.saveData(data);
+}
+
+async function loadData() {
+  if (!window.electronAPI?.loadData) return;
+  
+  try {
+    const data = await window.electronAPI.loadData();
+    if (data) {
+      tracks = data.tracks || [];
+      playlists = data.playlists || { 'all-songs': { name: 'Все песни', trackPaths: new Set(tracks.map(t => t.path)) } };
+      syncConfigs = data.syncConfigs || [];
+      customCategories = data.customCategories || [];
+      categoryCounter = data.categoryCounter || 0;
+      
+      // Применяем настройки
+      if (data.settings) {
+        lastVolume = data.settings.volume ?? lastVolume;
+        isMuted = data.settings.isMuted ?? isMuted;
+        isShuffle = data.settings.isShuffle ?? isShuffle;
+        repeatMode = data.settings.repeatMode ?? repeatMode;
+        
+        audio.volume = lastVolume;
+        updateVolumeUI();
+        shuffleBtn.classList.toggle('active', isShuffle);
+        repeatBtn.classList.toggle('active', repeatMode > 0);
+        if (repeatMode === 2) {
+          repeatBtn.innerHTML = '<i class="fa-solid fa-repeat"></i><span style="position:absolute;font-size:8px;font-weight:700;">1</span>';
+          repeatBtn.style.position = 'relative';
+        }
+      }
+      
+      // Обновляем плейлист "Все песни"
+      if (!playlists['all-songs']) {
+        playlists['all-songs'] = { name: 'Все песни', trackPaths: new Set(tracks.map(t => t.path)) };
+      } else {
+        playlists['all-songs'].trackPaths = new Set(tracks.map(t => t.path));
+      }
+    }
+  } catch (e) {
+    console.error('Ошибка загрузки данных:', e);
+  }
+}
+
+// ===== Утилиты рендеринга =====
 function renderAll() { renderPlaylist(); renderRecent(); }
 
 function handleKeyDown(e) {
@@ -501,4 +960,5 @@ function handleKeyDown(e) {
   if (e.code === 'ArrowLeft') audio.currentTime = Math.max(audio.currentTime - 5, 0);
 }
 
+// Запуск
 init();
