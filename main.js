@@ -22,7 +22,9 @@ function createWindow() {
       sandbox: true,
     },
   });
+
   mainWindow.loadFile('index.html');
+  
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }

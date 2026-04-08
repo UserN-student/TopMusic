@@ -1,6 +1,6 @@
 // Конфигурация приложения TopMusic
 const appConfig = {
-  version: '1.0.9',
+  version: '1.1.1',
   appName: 'TopMusic',
   minWindowWidth: 900,
   minWindowHeight: 600,

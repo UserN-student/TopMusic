@@ -1,7 +1,6 @@
 // ==========================================
 // 🎵 TopMusic - Renderer Process Logic
 // ==========================================
-
 const audio = document.getElementById('audio');
 const playBtn = document.getElementById('playBtn');
 const playIcon = document.getElementById('playIcon');
@@ -19,7 +18,7 @@ const currentTimeEl = document.getElementById('currentTime');
 const totalTimeEl = document.getElementById('totalTime');
 const trackNameEl = document.getElementById('trackName');
 const trackArtistEl = document.getElementById('trackArtist');
-const playlistBody = document.getElementById('playlistBody');
+const playlistGrid = document.getElementById('playlistGrid');
 const playlistCount = document.getElementById('playlistCount');
 const recentCards = document.getElementById('recentCards');
 const addTrackBtn = document.getElementById('addTrackBtn');
@@ -35,6 +34,7 @@ const createBtn = document.getElementById('createBtn');
 const categoryInput = document.getElementById('categoryInput');
 const categoriesList = document.getElementById('categoriesList');
 const appVersionEl = document.getElementById('appVersion');
+const syncTopBtn = document.getElementById('syncTopBtn');
 
 // Новые элементы
 const trackContextMenu = document.getElementById('trackContextMenu');
@@ -55,8 +55,8 @@ const missingFilePathEl = document.getElementById('missingFilePath');
 
 // Данные
 let tracks = [];
-let playlists = {}; // { id: { name, trackPaths: Set } }
-let syncConfigs = []; // { id, path, categories: [] }
+let playlists = {};
+let syncConfigs = [];
 let currentIndex = -1;
 let isPlaying = false;
 let isShuffle = false;
@@ -65,10 +65,16 @@ let isMuted = false;
 let lastVolume = window.appConfig?.defaultVolume ?? 0.7;
 let progressInterval = null;
 let currentPage = 'home';
+let currentCategory = 'all-songs';
 let customCategories = [];
 let categoryCounter = 0;
-let selectedTrackIndex = null; // для контекстного меню
-let selectedPlaylists = new Set(); // для модального окна плейлистов
+let selectedTrackIndex = null;
+let selectedPlaylists = new Set();
+
+// === ОПТИМИЗАЦИЯ: Пагинация для больших плейлистов ===
+const ITEMS_PER_PAGE = 50;
+let currentPageNum = 0;
+let renderTimeout = null;
 
 // Инициализация
 async function init() {
@@ -76,20 +82,15 @@ async function init() {
   audio.volume = lastVolume;
   updateVolumeUI();
   
-  // Загрузка данных
   await loadData();
-  
   renderRecent();
   renderSyncList();
   renderSyncCategories();
   setupEventListeners();
-  
-  // Проверка файлов при запуске
   await checkMissingFiles();
 }
 
 function setupEventListeners() {
-  // Управление окном
   document.getElementById('minimizeBtn').onclick = () => window.electronAPI?.windowMinimize();
   document.getElementById('maximizeBtn').onclick = async () => {
     if (window.electronAPI?.windowMaximize) {
@@ -99,13 +100,12 @@ function setupEventListeners() {
     }
   };
   document.getElementById('closeBtn').onclick = () => window.electronAPI?.windowClose();
-
-  // Кнопки добавления
+  
   addTrackBtn?.addEventListener('click', addFiles);
   addFolderBtn?.addEventListener('click', addFolder);
   addCategoryBtn.addEventListener('click', openModal);
-
-  // Плеер
+  syncTopBtn?.addEventListener('click', () => openModalById('syncModal'));
+  
   playBtn.onclick = togglePlay;
   prevBtn.onclick = handlePrev;
   nextBtn.onclick = handleNext;
@@ -113,10 +113,8 @@ function setupEventListeners() {
   volumeContainer.onclick = handleVolumeClick;
   volumeIcon.onclick = toggleMute;
   
-  // Сортировка
   sortBtn?.addEventListener('click', (e) => { e.stopPropagation(); sortDropdown.classList.toggle('open'); });
   sortOptions.forEach(opt => opt.onclick = () => handleSort(opt));
-  
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.sort-container')) sortDropdown.classList.remove('open');
     if (!e.target.closest('.track-menu-btn') && !e.target.closest('.context-menu')) {
@@ -124,10 +122,8 @@ function setupEventListeners() {
     }
   });
   
-  // Модальные окна
   setupModalListeners();
   
-  // Категория
   categoryInput?.addEventListener('input', () => {
     if (createBtn) createBtn.disabled = categoryInput.value.trim().length === 0;
   });
@@ -137,16 +133,24 @@ function setupEventListeners() {
   });
   createBtn?.addEventListener('click', createCategory);
   
-  // Плеер контролы
   likeBtn.onclick = toggleLike;
   shuffleBtn.onclick = toggleShuffle;
   repeatBtn.onclick = toggleRepeat;
   
-  // Аудио
   audio.onended = handleTrackEnded;
   document.addEventListener('keydown', handleKeyDown);
   
-  // Resize fix
+  // === ОПТИМИЗАЦИЯ: Ленивая прокрутка ===
+  const playlistView = document.getElementById('playlistView');
+  playlistView?.addEventListener('scroll', () => {
+    if (renderTimeout) clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(() => {
+      if (playlistView.classList.contains('active')) {
+        renderPlaylistPage();
+      }
+    }, 100);
+  }, { passive: true });
+  
   let resizeTimeout;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimeout);
@@ -158,7 +162,6 @@ function setupEventListeners() {
 }
 
 function setupModalListeners() {
-  // Закрытие по кнопкам
   document.querySelectorAll('.modal-close, .modal-btn-cancel').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const modalId = e.currentTarget.dataset.modal;
@@ -167,14 +170,12 @@ function setupModalListeners() {
     });
   });
   
-  // Закрытие по оверлею
   [detailsModal, playlistModal, syncModal, missingFileModal].forEach(modal => {
     modal?.addEventListener('click', (e) => {
       if (e.target === modal) closeModalById(modal.id);
     });
   });
   
-  // Контекстное меню трека
   document.querySelectorAll('.context-item').forEach(item => {
     item.addEventListener('click', (e) => {
       const action = e.currentTarget.dataset.action;
@@ -183,7 +184,6 @@ function setupModalListeners() {
     });
   });
   
-  // Плейлисты - чекбоксы
   playlistListContent?.addEventListener('click', (e) => {
     const checkbox = e.target.closest('.playlist-checkbox');
     if (checkbox) {
@@ -197,7 +197,6 @@ function setupModalListeners() {
     }
   });
   
-  // Добавить в плейлист
   addToPlaylistBtn?.addEventListener('click', () => {
     if (selectedTrackIndex !== null && selectedTrackIndex < tracks.length) {
       const trackPath = tracks[selectedTrackIndex].path;
@@ -208,29 +207,25 @@ function setupModalListeners() {
       });
       saveData();
       closeModalById('playlistModal');
+      renderPlaylist();
     }
   });
   
-  // Синхронизация - выбор папки
   syncFolderBtn?.addEventListener('click', async () => {
     const folder = await window.electronAPI?.openFolder();
-    if (folder) {
-      await syncFolder(folder);
-    }
+    if (folder) await syncFolder(folder);
   });
   
-  // Копировать путь недостающего файла
   copyMissingPathBtn?.addEventListener('click', () => {
     const path = missingFilePathEl.textContent;
     navigator.clipboard?.writeText(path).then(() => {
-      copyMissingPathBtn.innerHTML = '<i class="fa-solid fa-check"></i> Скопировано!';
+      copyMissingPathBtn.innerHTML = '✓ Скопировано!';
       setTimeout(() => {
         copyMissingPathBtn.innerHTML = '<svg class="svg-icon" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Копировать путь';
       }, 2000);
     });
   });
   
-  // ОК для недостающего файла
   okMissingFileBtn?.addEventListener('click', () => {
     const path = missingFilePathEl.textContent;
     removeTrackByPath(path);
@@ -238,24 +233,19 @@ function setupModalListeners() {
   });
 }
 
-// ===== Работа с файлами =====
 async function addFiles() {
   if (!window.electronAPI?.openFiles) { addDemoTracks(); return; }
-  
   const files = await window.electronAPI.openFiles();
   if (!files.length) return;
   
+  const fragment = document.createDocumentFragment();
   files.forEach(file => {
-    const fileName = file.split(/[\\/]/).pop();
+    const fileName = file.split(/[\/\\]/).pop();
     const name = fileName.replace(/\.[^.]+$/, '');
     const ext = fileName.split('.').pop().toUpperCase();
     tracks.push({
-      path: file,
-      name: name,
-      ext: ext,
-      duration: null,
-      dateAdded: Date.now(),
-      liked: false
+      path: file, name, ext, duration: null, dateAdded: Date.now(), liked: false,
+      categories: ['all-songs']
     });
   });
   
@@ -267,7 +257,6 @@ async function addFiles() {
 
 async function addFolder() {
   if (!window.electronAPI?.openFolder) return;
-  
   const folder = await window.electronAPI.openFolder();
   if (!folder) return;
   
@@ -275,18 +264,13 @@ async function addFolder() {
   if (!files?.length) return;
   
   files.forEach(file => {
-    const fileName = file.split(/[\\/]/).pop();
-    const name = fileName.replace(/\.[^.]+$/, '');
-    const ext = fileName.split('.').pop().toUpperCase();
-    // Проверяем, нет ли уже такого трека
     if (!tracks.some(t => t.path === file)) {
+      const fileName = file.split(/[\/\\]/).pop();
+      const name = fileName.replace(/\.[^.]+$/, '');
+      const ext = fileName.split('.').pop().toUpperCase();
       tracks.push({
-        path: file,
-        name: name,
-        ext: ext,
-        duration: null,
-        dateAdded: Date.now(),
-        liked: false
+        path: file, name, ext, duration: null, dateAdded: Date.now(), liked: false,
+        categories: ['all-songs']
       });
     }
   });
@@ -301,30 +285,19 @@ async function syncFolder(folderPath) {
   const files = await window.electronAPI?.getAudioFilesInFolder?.(folderPath);
   if (!files?.length) return;
   
-  // Создаём конфигурацию синхронизации
   const syncId = `sync-${Date.now()}`;
-  const syncConfig = {
-    id: syncId,
-    path: folderPath,
-    categories: ['all-songs'] // по умолчанию только "Все песни"
-  };
+  const syncConfig = { id: syncId, path: folderPath, categories: ['all-songs'] };
   syncConfigs.push(syncConfig);
   
-  // Добавляем треки
   let added = 0;
   files.forEach(file => {
     if (!tracks.some(t => t.path === file)) {
-      const fileName = file.split(/[\\/]/).pop();
+      const fileName = file.split(/[\/\\]/).pop();
       const name = fileName.replace(/\.[^.]+$/, '');
       const ext = fileName.split('.').pop().toUpperCase();
       tracks.push({
-        path: file,
-        name: name,
-        ext: ext,
-        duration: null,
-        dateAdded: Date.now(),
-        liked: false,
-        synced: syncId
+        path: file, name, ext, duration: null, dateAdded: Date.now(), liked: false,
+        synced: syncId, categories: ['all-songs']
       });
       added++;
     }
@@ -335,8 +308,6 @@ async function syncFolder(folderPath) {
   renderSyncCategories();
   loadTrackDurations();
   saveData();
-  
-  // Показываем уведомление (опционально)
   console.log(`Синхронизация: добавлено ${added} треков`);
 }
 
@@ -347,88 +318,126 @@ function addDemoTracks() {
     { name: 'Neon Dreams', ext: 'FLAC', duration: 213 }
   ];
   demo.forEach((t, i) => tracks.push({
-    path: `demo-${i}.${t.ext.toLowerCase()}`,
-    ...t,
-    dateAdded: Date.now() - i * 3600000,
-    liked: false
+    path: `demo-${i}.${t.ext.toLowerCase()}`, ...t,
+    dateAdded: Date.now() - i * 3600000, liked: false, categories: ['all-songs']
   }));
   renderAll();
 }
 
-// ===== Утилиты =====
-function getFileTypeText(ext) {
-  if (!ext) return 'Файл';
-  return `${ext}-файл`;
-}
+function getFileTypeText(ext) { if (!ext) return 'Файл'; return `${ext}-файл`; }
+function formatTime(sec) { if (!sec || isNaN(sec)) return '0:00'; return `${Math.floor(sec / 60)}:${Math.floor(sec % 60).toString().padStart(2, '0')}`; }
+function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 
-function formatTime(sec) {
-  if (!sec || isNaN(sec)) return '0:00';
-  return `${Math.floor(sec / 60)}:${Math.floor(sec % 60).toString().padStart(2, '0')}`;
-}
-
-function escapeHtml(str) {
-  const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
-}
-
-// ===== Рендеринг =====
+// === ОПТИМИЗАЦИЯ: Пагинация рендеринга ===
 function renderPlaylist() {
-  if (!tracks.length) {
-    playlistBody.innerHTML = `<tr class="track-row empty-message"><td colspan="5">Нет треков. Нажмите "Добавить песню"</td></tr>`;
+  currentPageNum = 0;
+  renderPlaylistPage();
+}
+
+function renderPlaylistPage() {
+  if (!playlistGrid) return;
+  
+  let displayTracks = tracks;
+  if (currentCategory !== 'all-songs') {
+    displayTracks = tracks.filter(t => t.categories?.includes(currentCategory));
+  }
+  
+  if (!displayTracks.length) {
+    playlistGrid.innerHTML = `<div class="playlist-empty"><i class="fa-regular fa-circle-play"></i>Нет треков в этой категории</div>`;
     playlistCount.textContent = '0 треков';
     return;
   }
   
-  playlistBody.innerHTML = '';
-  playlistCount.textContent = `${tracks.length} треков`;
+  const start = currentPageNum * ITEMS_PER_PAGE;
+  const end = start + ITEMS_PER_PAGE;
+  const pageTracks = displayTracks.slice(start, end);
   
-  tracks.forEach((track, i) => {
-    const tr = document.createElement('tr');
-    tr.className = 'track-row' + (i === currentIndex ? ' active-track' : '');
-    tr.dataset.index = i;
+  playlistCount.textContent = `${displayTracks.length} треков`;
+  
+  // === ОПТИМИЗАЦИЯ: DocumentFragment для batch-вставки ===
+  const fragment = document.createDocumentFragment();
+  
+  pageTracks.forEach((track) => {
+    const realIndex = tracks.findIndex(t => t.path === track.path);
+    if (realIndex === -1) return;
+    
+    const card = document.createElement('div');
+    card.className = 'track-card' + (realIndex === currentIndex ? ' active-track' : '');
+    card.dataset.index = realIndex;
     
     const duration = track.duration ? formatTime(track.duration) : '--:--';
     const fileType = getFileTypeText(track.ext);
     
-    tr.innerHTML = `
-      <td class="col-num">
-        <div class="track-number">
-          <span>${i + 1}</span>
-          <span class="hover-play"><i class="fa-solid fa-play"></i></span>
+    card.innerHTML = `
+      <div class="track-card-art">
+        <i class="fa-solid fa-music"></i>
+        <div class="play-overlay"><i class="fa-solid fa-${realIndex === currentIndex && isPlaying ? 'pause' : 'play'}"></i></div>
+      </div>
+      <div class="track-card-info">
+        <div class="track-card-title">${escapeHtml(track.name)}</div>
+        <div class="track-card-meta">
+          <span class="track-card-type"><i class="fa-regular fa-file-audio"></i> ${fileType}</span>
+          <span class="track-card-duration"><i class="fa-regular fa-clock"></i> ${duration}</span>
         </div>
-      </td>
-      <td class="col-title">${escapeHtml(track.name)}</td>
-      <td class="col-artist">${fileType}</td>
-      <td class="col-duration">${duration}</td>
-      <td class="col-actions">
-        <button class="track-menu-btn" data-index="${i}"><i class="fa-solid fa-ellipsis"></i></button>
-      </td>
+      </div>
+      <div class="track-card-menu">
+        <button class="track-menu-btn" data-index="${realIndex}"><i class="fa-solid fa-ellipsis"></i></button>
+      </div>
     `;
     
-    // Клик по строке - воспроизведение
-    tr.querySelector('.col-title').parentElement.onclick = () => {
-      const idx = parseInt(tr.dataset.index);
-      currentIndex = idx;
-      loadTrack(idx);
-      play();
+    card.querySelector('.track-card-info').onclick = (e) => {
+      if (!e.target.closest('.track-menu-btn')) {
+        currentIndex = realIndex;
+        loadTrack(realIndex);
+        play();
+      }
     };
     
-    // Клик по кнопке меню
-    const menuBtn = tr.querySelector('.track-menu-btn');
+    const menuBtn = card.querySelector('.track-menu-btn');
     menuBtn.onclick = (e) => {
       e.stopPropagation();
-      selectedTrackIndex = parseInt(tr.dataset.index);
+      selectedTrackIndex = realIndex;
       showContextMenu(e, menuBtn);
     };
     
-    playlistBody.appendChild(tr);
+    fragment.appendChild(card);
   });
+  
+  // Если это первая страница - очищаем, иначе - добавляем
+  if (currentPageNum === 0) {
+    playlistGrid.innerHTML = '';
+  }
+  playlistGrid.appendChild(fragment);
 }
 
+// === ИСПРАВЛЕНИЕ: Позиционирование контекстного меню ===
 function showContextMenu(event, button) {
+  const menu = trackContextMenu;
   const rect = button.getBoundingClientRect();
-  trackContextMenu.style.left = `${rect.right + 8}px`;
-  trackContextMenu.style.top = `${rect.top}px`;
-  trackContextMenu.classList.add('open');
+  const menuWidth = 220;
+  const menuHeight = 100;
+  
+  // Позиция по умолчанию: справа от кнопки
+  let left = rect.right + 8;
+  let top = rect.top;
+  
+  // Если выходит за правый край - позиционируем слева
+  if (left + menuWidth > window.innerWidth - 20) {
+    left = rect.left - menuWidth - 8;
+  }
+  
+  // Если выходит за нижний край - поднимаем вверх
+  if (top + menuHeight > window.innerHeight - 20) {
+    top = window.innerHeight - menuHeight - 20;
+  }
+  
+  // Ограничиваем минимальные отступы
+  left = Math.max(10, Math.min(left, window.innerWidth - menuWidth - 10));
+  top = Math.max(10, Math.min(top, window.innerHeight - menuHeight - 10));
+  
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.classList.add('open');
 }
 
 function renderRecent() {
@@ -438,25 +447,18 @@ function renderRecent() {
     recentCards.innerHTML = `<div class="empty-message"><i class="fa-regular fa-circle-play"></i>Послушайте что-нибудь</div>`;
     return;
   }
-  
   recentCards.classList.remove('empty');
-  const recent = [...tracks].sort((a, b) => b.dateAdded - a.dateAdded).slice(0, 6);
   
+  const recent = [...tracks].sort((a, b) => b.dateAdded - a.dateAdded).slice(0, 6);
   recent.forEach((track) => {
     const card = document.createElement('div');
     card.className = 'song-card';
     card.dataset.path = track.path;
-    
     const trackIndex = tracks.findIndex(t => t.path === track.path);
     if (trackIndex === currentIndex && isPlaying) card.classList.add('playing');
     
     card.innerHTML = `
-      <div class="song-card-art">
-        <i class="fa-solid fa-music"></i>
-        <div class="play-overlay">
-          <i class="fa-solid fa-${trackIndex === currentIndex && isPlaying ? 'pause' : 'play'}"></i>
-        </div>
-      </div>
+      <div class="song-card-art"><i class="fa-solid fa-music"></i><div class="play-overlay"><i class="fa-solid fa-${trackIndex === currentIndex && isPlaying ? 'pause' : 'play'}"></i></div></div>
       <div class="song-card-title">${escapeHtml(track.name)}</div>
       <div class="song-card-artist">${getFileTypeText(track.ext)}</div>
     `;
@@ -465,7 +467,6 @@ function renderRecent() {
       const idx = tracks.findIndex(t => t.path === track.path);
       if (idx !== -1) { currentIndex = idx; loadTrack(idx); play(); }
     };
-    
     recentCards.appendChild(card);
   });
 }
@@ -474,7 +475,6 @@ function updateRecentlyPlaying() {
   if (currentIndex === -1) return;
   const currentPath = tracks[currentIndex].path;
   const cards = recentCards.querySelectorAll('.song-card');
-  
   cards.forEach(card => {
     const isCurrent = card.dataset.path === currentPath;
     const playIcon = card.querySelector('.play-overlay i');
@@ -508,9 +508,11 @@ function loadTrack(index) {
   trackArtistEl.textContent = getFileTypeText(track.ext);
   totalTimeEl.textContent = track.duration ? formatTime(track.duration) : '--:--';
   
-  document.querySelectorAll('.track-row').forEach(tr => {
-    const trIndex = parseInt(tr.dataset.index);
-    tr.classList.toggle('active-track', trIndex === index);
+  document.querySelectorAll('.track-card').forEach(card => {
+    const cardIndex = parseInt(card.dataset.index);
+    card.classList.toggle('active-track', cardIndex === index);
+    const playIcon = card.querySelector('.play-overlay i');
+    if (playIcon) playIcon.className = `fa-solid fa-${cardIndex === index && isPlaying ? 'pause' : 'play'}`;
   });
   
   const heart = likeBtn.querySelector('i');
@@ -520,7 +522,6 @@ function loadTrack(index) {
   updateRecentlyPlaying();
 }
 
-// ===== Плеер =====
 function play() {
   if (currentIndex === -1) return;
   audio.play().catch(() => {});
@@ -528,6 +529,7 @@ function play() {
   playIcon.className = 'fa-solid fa-pause';
   startProgress();
   updateRecentlyPlaying();
+  loadTrack(currentIndex);
 }
 
 function pause() {
@@ -536,6 +538,7 @@ function pause() {
   playIcon.className = 'fa-solid fa-play';
   stopProgress();
   updateRecentlyPlaying();
+  loadTrack(currentIndex);
 }
 
 function togglePlay() { isPlaying ? pause() : play(); }
@@ -551,7 +554,6 @@ function handlePrev() {
 function handleNext() {
   if (!tracks.length) return;
   if (repeatMode === 2) { audio.currentTime = 0; play(); return; }
-  
   if (isShuffle) {
     let next;
     do { next = Math.floor(Math.random() * tracks.length); } while (next === currentIndex && tracks.length > 1);
@@ -589,34 +591,37 @@ function handleProgressClick(e) {
   audio.currentTime = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * audio.duration;
 }
 
-// ===== Сортировка =====
 function handleSort(option) {
   sortOptions.forEach(o => o.classList.remove('active'));
   option.classList.add('active');
   const sortType = option.dataset.sort;
   const currentPath = tracks[currentIndex]?.path;
-  sortTracks(sortType);
+  
+  let displayTracks = currentCategory === 'all-songs' ? [...tracks] : tracks.filter(t => t.categories?.includes(currentCategory));
+  
+  switch(sortType) {
+    case 'name-az': displayTracks.sort((a, b) => a.name.localeCompare(b.name)); break;
+    case 'name-za': displayTracks.sort((a, b) => b.name.localeCompare(a.name)); break;
+    case 'date-new-old': displayTracks.sort((a, b) => b.dateAdded - a.dateAdded); break;
+    case 'date-old-new': displayTracks.sort((a, b) => a.dateAdded - b.dateAdded); break;
+  }
+  
+  if (currentCategory !== 'all-songs') {
+    const otherTracks = tracks.filter(t => !t.categories?.includes(currentCategory));
+    tracks = [...displayTracks, ...otherTracks];
+  }
+  
   if (currentPath) currentIndex = tracks.findIndex(t => t.path === currentPath);
   renderPlaylist();
   setTimeout(() => sortDropdown.classList.remove('open'), 150);
 }
 
-function sortTracks(type) {
-  switch(type) {
-    case 'name-az': tracks.sort((a, b) => a.name.localeCompare(b.name)); break;
-    case 'name-za': tracks.sort((a, b) => b.name.localeCompare(a.name)); break;
-    case 'date-new-old': tracks.sort((a, b) => b.dateAdded - a.dateAdded); break;
-    case 'date-old-new': tracks.sort((a, b) => a.dateAdded - b.dateAdded); break;
-  }
-}
-
-// ===== Контролы =====
 function toggleShuffle() { isShuffle = !isShuffle; shuffleBtn.classList.toggle('active', isShuffle); }
 function toggleRepeat() {
   repeatMode = (repeatMode + 1) % 3;
   repeatBtn.classList.toggle('active', repeatMode > 0);
   repeatBtn.innerHTML = repeatMode === 2 
-    ? '<i class="fa-solid fa-repeat"></i><span style="position:absolute;font-size:8px;font-weight:700;">1</span>'
+    ? '<i class="fa-solid fa-repeat"></i><span style="position:absolute;font-size:8px;font-weight:700;">1</span>' 
     : '<i class="fa-solid fa-repeat"></i>';
   repeatBtn.style.position = repeatMode === 2 ? 'relative' : '';
 }
@@ -628,19 +633,16 @@ function toggleLike() {
   icon.style.color = tracks[currentIndex].liked ? '#fff' : '';
   saveData();
 }
-
 function handleVolumeClick(e) {
   const rect = volumeContainer.getBoundingClientRect();
   const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   audio.volume = pct; lastVolume = pct; isMuted = (pct === 0); updateVolumeUI();
 }
-
 function toggleMute() {
   isMuted = !isMuted;
   audio.volume = isMuted ? 0 : lastVolume;
   updateVolumeUI();
 }
-
 function updateVolumeUI() {
   const vol = audio.volume;
   volumeFill.style.width = (vol * 100) + '%';
@@ -649,14 +651,22 @@ function updateVolumeUI() {
   else volumeIcon.className = 'fa-solid fa-volume-high volume-icon';
 }
 
-// ===== Навигация =====
 window.switchPage = function(el) {
   document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
   el.classList.add('active');
   
   const pageName = el.querySelector('span')?.textContent || '';
   document.getElementById('pageTitle').textContent = pageName;
+  
   currentPage = el.dataset.page;
+  
+  if (currentPage === 'custom') {
+    currentCategory = el.dataset.catId;
+  } else if (currentPage === 'all-songs') {
+    currentCategory = 'all-songs';
+  } else {
+    currentCategory = null;
+  }
   
   const graphSection = document.getElementById('graphSection');
   const playlistView = document.getElementById('playlistView');
@@ -667,21 +677,23 @@ window.switchPage = function(el) {
   [graphSection, playlistView, settingsView].forEach(s => s?.classList.remove('active'));
   recentSection?.classList.remove('hidden');
   sortContainer?.classList.add('hidden');
+  syncTopBtn?.classList.add('hidden');
   
   switch(currentPage) {
     case 'home': graphSection?.classList.add('active'); break;
     case 'settings': settingsView?.classList.add('active'); recentSection?.classList.add('hidden'); break;
-    case 'all-songs': case 'custom':
+    case 'all-songs':
+    case 'custom':
       playlistView?.classList.add('active');
       sortContainer?.classList.remove('hidden');
       recentSection?.classList.add('hidden');
+      if (currentCategory === 'all-songs') syncTopBtn?.classList.remove('hidden');
       renderPlaylist();
       break;
   }
   sortDropdown?.classList.remove('open');
 };
 
-// ===== Категории =====
 function openModal() { modalOverlay.classList.add('open'); setTimeout(() => categoryInput?.focus(), 200); }
 function closeModal() {
   modalOverlay.classList.remove('open');
@@ -695,8 +707,16 @@ function closeModalById(id) {
 function createCategory() {
   const name = categoryInput?.value.trim();
   if (!name) return;
+  
+  if (name.toLowerCase() === 'все песни' || name.toLowerCase() === 'all songs') {
+    alert('Нельзя создать категорию с названием "Все песни"');
+    return;
+  }
+  
   categoryCounter++;
   const catId = `cat-${categoryCounter}`;
+  
+  if (!playlists[catId]) playlists[catId] = { name: name, trackPaths: new Set() };
   customCategories.push({ id: catId, name });
   
   const catEl = document.createElement('div');
@@ -706,6 +726,7 @@ function createCategory() {
   catEl.onclick = function() { window.switchPage(this); };
   catEl.innerHTML = `<i class="fa-solid fa-folder"></i><span>${escapeHtml(name)}</span><button class="delete-cat" title="Удалить"><i class="fa-solid fa-xmark"></i></button>`;
   catEl.querySelector('.delete-cat').onclick = (e) => { e.stopPropagation(); deleteCategory(catId, catEl); };
+  
   categoriesList?.appendChild(catEl);
   closeModal();
   saveData();
@@ -714,17 +735,20 @@ function createCategory() {
 function deleteCategory(catId, el) {
   el.style.transition = 'all 0.25s ease';
   el.style.opacity = '0'; el.style.transform = 'translateX(-16px)';
+  
   setTimeout(() => {
     el.remove();
     customCategories = customCategories.filter(c => c.id !== catId);
-    if (currentPage === 'custom' && document.querySelector('.nav-item.active')?.dataset.catId === catId) {
-      window.switchPage(document.querySelector('[data-page="all-songs"]'));
+    delete playlists[catId];
+    
+    if (currentPage === 'custom' && currentCategory === catId) {
+      const allSongsItem = document.querySelector('[data-page="all-songs"]');
+      if (allSongsItem) window.switchPage(allSongsItem);
     }
     saveData();
   }, 250);
 }
 
-// ===== Контекстное меню =====
 function handleContextMenuAction(action) {
   if (selectedTrackIndex === null || selectedTrackIndex >= tracks.length) return;
   const track = tracks[selectedTrackIndex];
@@ -737,9 +761,6 @@ function handleContextMenuAction(action) {
     case 'playlist':
       showPlaylistSelection();
       openModalById('playlistModal');
-      break;
-    case 'sync':
-      openModalById('syncModal');
       break;
   }
 }
@@ -758,108 +779,84 @@ function showTrackDetails(track) {
     ['Добавлен', new Date(track.dateAdded).toLocaleDateString('ru-RU')],
     ['В избранном', track.liked ? 'Да' : 'Нет']
   ];
-  
-  trackDetailsContent.innerHTML = details.map(([label, value]) => 
+  trackDetailsContent.innerHTML = details.map(([label, value]) =>
     `<span class="track-details-label">${label}</span><span class="track-details-value">${escapeHtml(value)}</span>`
   ).join('');
 }
 
 function showPlaylistSelection() {
-  // Фильтруем: только пользовательские плейлисты (не "all-songs")
   const userPlaylists = Object.entries(playlists).filter(([id]) => id !== 'all-songs');
   
   if (userPlaylists.length === 0) {
-    playlistListContent.innerHTML = '<p style="color:#666;font-size:13px;text-align:center">Нет созданных плейлистов</p>';
+    playlistListContent.innerHTML = '<div style="text-align:center;color:#666;padding:20px">Нет созданных плейлистов</div>';
     return;
   }
   
   playlistListContent.innerHTML = userPlaylists.map(([id, playlist]) => {
     const isChecked = selectedPlaylists.has(id) ? 'checked' : '';
-    return `
-      <div class="playlist-item">
-        <div class="playlist-checkbox ${isChecked}" data-playlist-id="${id}"></div>
-        <span class="playlist-name">${escapeHtml(playlist.name)}</span>
-        <span class="playlist-count">${playlist.trackPaths.size} треков</span>
-      </div>
-    `;
+    return `<div class="playlist-item">
+      <div class="playlist-checkbox ${isChecked}" data-playlist-id="${id}"></div>
+      <span class="playlist-name">${escapeHtml(playlist.name)}</span>
+      <span class="playlist-count">${playlist.trackPaths.size} треков</span>
+    </div>`;
   }).join('');
   
   selectedPlaylists.clear();
 }
 
-// ===== Синхронизация =====
 function renderSyncList() {
   if (syncConfigs.length === 0) {
-    syncListContent.innerHTML = '<p style="color:#666;font-size:13px">Нет настроенных синхронизаций</p>';
+    syncListContent.innerHTML = '<div style="text-align:center;color:#666;padding:20px">Нет настроенных синхронизаций</div>';
     return;
   }
   
   syncListContent.innerHTML = syncConfigs.map(config => {
     const count = tracks.filter(t => t.synced === config.id).length;
-    return `
-      <div class="sync-item">
-        <span class="sync-item-name">Синхронизация #${syncConfigs.indexOf(config) + 1}</span>
-        <span class="sync-item-path" title="${escapeHtml(config.path)}">${escapeHtml(config.path)}</span>
-        <span class="sync-item-count">${count} песен</span>
-      </div>
-    `;
+    return `<div class="sync-item">
+      <span class="sync-item-name">Синхронизация #${syncConfigs.indexOf(config) + 1}</span>
+      <span class="sync-item-path" title="${escapeHtml(config.path)}">${escapeHtml(config.path)}</span>
+      <span class="sync-item-count">${count} песен</span>
+    </div>`;
   }).join('');
 }
 
 function renderSyncCategories() {
-  // "Все песни" всегда включена и не удаляется
-  const categories = [
-    { id: 'all-songs', name: 'Все песни', default: true, checked: true }
-  ];
+  const categories = [{ id: 'all-songs', name: 'Все песни', default: true, checked: true }];
   
-  // Добавляем пользовательские категории
   customCategories.forEach(cat => {
     const isChecked = syncConfigs[0]?.categories?.includes(cat.id) ?? false;
     categories.push({ id: cat.id, name: cat.name, default: false, checked: isChecked });
   });
   
-  syncCategoriesContent.innerHTML = categories.map(cat => `
-    <label class="category-toggle${cat.default ? ' default' : ''}">
-      <input type="checkbox" ${cat.default ? 'checked disabled' : (cat.checked ? 'checked' : '')} 
-             data-category-id="${cat.id}" ${!cat.default ? 'onchange="toggleSyncCategory(this)"' : ''}>
+  syncCategoriesContent.innerHTML = categories.map(cat => 
+    `<label class="category-toggle${cat.default ? ' default' : ''}">
+      <input type="checkbox" ${cat.default ? 'checked disabled' : (cat.checked ? 'checked' : '')} data-category-id="${cat.id}" ${!cat.default ? 'onchange="toggleSyncCategory(this)"' : ''}>
       <span>${escapeHtml(cat.name)}${cat.default ? ' (по умолчанию)' : ''}</span>
-    </label>
-  `).join('');
+    </label>`
+  ).join('');
 }
 
 window.toggleSyncCategory = function(checkbox) {
   const catId = checkbox.dataset.categoryId;
   const isChecked = checkbox.checked;
   
-  // Обновляем все конфиги синхронизации
   syncConfigs.forEach(config => {
     if (isChecked) {
-      if (!config.categories.includes(catId)) {
-        config.categories.push(catId);
-      }
+      if (!config.categories.includes(catId)) config.categories.push(catId);
     } else {
       config.categories = config.categories.filter(id => id !== catId);
     }
   });
-  
   saveData();
 };
 
-// ===== Проверка недостающих файлов =====
 async function checkMissingFiles() {
   const missing = [];
-  
   for (const track of tracks) {
     const exists = await window.electronAPI?.checkFileExists?.(track.path);
-    if (!exists) {
-      missing.push(track);
-    }
+    if (!exists) missing.push(track);
   }
-  
-  if (missing.length > 0) {
-    // Показываем первый недостающий файл
-    showMissingFileModal(missing[0]);
-  }
+  if (missing.length > 0) showMissingFileModal(missing[0]);
 }
 
 function showMissingFileModal(track) {
@@ -881,38 +878,23 @@ function removeTrackByPath(path) {
       totalTimeEl.textContent = '0:00';
       progressFill.style.width = '0%';
       pause();
-    } else if (currentIndex > index) {
-      currentIndex--;
-    }
+    } else if (currentIndex > index) currentIndex--;
     renderAll();
     saveData();
   }
 }
 
-// ===== Сохранение/загрузка =====
 async function saveData() {
   if (!window.electronAPI?.saveData) return;
-  
   const data = {
-    tracks,
-    playlists,
-    syncConfigs,
-    customCategories,
-    categoryCounter,
-    settings: {
-      volume: lastVolume,
-      isMuted,
-      isShuffle,
-      repeatMode
-    }
+    tracks, playlists, syncConfigs, customCategories, categoryCounter,
+    settings: { volume: lastVolume, isMuted, isShuffle, repeatMode }
   };
-  
   await window.electronAPI.saveData(data);
 }
 
 async function loadData() {
   if (!window.electronAPI?.loadData) return;
-  
   try {
     const data = await window.electronAPI.loadData();
     if (data) {
@@ -922,13 +904,11 @@ async function loadData() {
       customCategories = data.customCategories || [];
       categoryCounter = data.categoryCounter || 0;
       
-      // Применяем настройки
       if (data.settings) {
         lastVolume = data.settings.volume ?? lastVolume;
         isMuted = data.settings.isMuted ?? isMuted;
         isShuffle = data.settings.isShuffle ?? isShuffle;
         repeatMode = data.settings.repeatMode ?? repeatMode;
-        
         audio.volume = lastVolume;
         updateVolumeUI();
         shuffleBtn.classList.toggle('active', isShuffle);
@@ -939,19 +919,20 @@ async function loadData() {
         }
       }
       
-      // Обновляем плейлист "Все песни"
       if (!playlists['all-songs']) {
         playlists['all-songs'] = { name: 'Все песни', trackPaths: new Set(tracks.map(t => t.path)) };
       } else {
         playlists['all-songs'].trackPaths = new Set(tracks.map(t => t.path));
       }
+      
+      tracks.forEach(track => {
+        if (!track.categories) track.categories = ['all-songs'];
+        else if (!track.categories.includes('all-songs')) track.categories.push('all-songs');
+      });
     }
-  } catch (e) {
-    console.error('Ошибка загрузки данных:', e);
-  }
+  } catch (e) { console.error('Ошибка загрузки данных:', e); }
 }
 
-// ===== Утилиты рендеринга =====
 function renderAll() { renderPlaylist(); renderRecent(); }
 
 function handleKeyDown(e) {
@@ -960,5 +941,4 @@ function handleKeyDown(e) {
   if (e.code === 'ArrowLeft') audio.currentTime = Math.max(audio.currentTime - 5, 0);
 }
 
-// Запуск
 init();
