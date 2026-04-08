@@ -221,13 +221,12 @@
         }
         .add-folder-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
-        /* === СЕТКА КАРТОЧЕК === */
+        /* === СЕТКА КАРТОЧЕК (Оптимизировано) === */
         .playlist-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 14px;
             width: 100%;
-            will-change: contents;
         }
         
         .track-card {
@@ -241,7 +240,9 @@
             align-items: center;
             gap: 14px;
             position: relative;
-            contain: content;
+            /* Оптимизация рендеринга больших списков без мерцания */
+            content-visibility: auto;
+            contain-intrinsic-size: 0 80px;
         }
         .track-card:hover {
             background: rgba(255,255,255,0.08);
@@ -508,7 +509,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .recent-cards .song-card { animation: fadeIn 0.4s ease forwards; }
-        .track-card { animation: fadeIn 0.3s ease forwards; }
 
         .modal-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,0.7);
@@ -739,7 +739,7 @@
 
         <div class="playlist-view" id="playlistView">
             <div class="playlist-header">
-                <span style="color:#666;font-size:13px" id="playlistCount">0 треков</span>
+                <span style="color:#666;font-size:13px" id="playlistCount">0 треков • 0:00</span>
                 <div style="display:flex;gap:8px">
                     <button class="add-track-btn" id="addTrackBtn">
                         <i class="fa-solid fa-plus"></i> Добавить песню
@@ -829,7 +829,7 @@
         </div>
     </div>
 
-    <!-- Модальные окна (без изменений) -->
+    <!-- Модальные окна -->
     <div class="modal-overlay" id="modalOverlay">
         <div class="modal-box">
             <div class="modal-header">
