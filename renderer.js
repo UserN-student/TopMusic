@@ -70,7 +70,7 @@ let customCategories = [];
 let categoryCounter = 0;
 let selectedTrackIndex = null;
 let selectedPlaylists = new Set();
-
+let currentSortType = 'date-new-old'; // Тип сортировки по умолчанию
 // Инициализация
 async function init() {
   if (appVersionEl && window.appConfig) appVersionEl.textContent = window.appConfig.version;
@@ -314,36 +314,48 @@ function formatTime(sec) { if (!sec || isNaN(sec)) return '0:00'; return `${Math
 function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 
 // ===== Рендеринг (Оптимизировано через CSS content-visibility) =====
+// ===== Рендеринг плейлиста (ИСПРАВЛЕНО) =====
 function renderPlaylist() {
   if (!playlistGrid) return;
   
-  let displayTracks = currentCategory === 'all-songs' ? tracks : tracks.filter(t => t.categories?.includes(currentCategory));
-  
+  let displayTracks = currentCategory === 'all-songs' 
+    ? [...tracks] 
+    : tracks.filter(t => t.categories?.includes(currentCategory));
+
   if (!displayTracks.length) {
     playlistGrid.innerHTML = `<div class="playlist-empty"><i class="fa-regular fa-circle-play"></i>Нет треков</div>`;
     updatePlaylistInfo(displayTracks);
     return;
   }
-  
+
+  // Применяем сортировку только к отображаемому списку
+  switch(currentSortType) {
+    case 'name-az': displayTracks.sort((a, b) => a.name.localeCompare(b.name, 'ru')); break;
+    case 'name-za': displayTracks.sort((a, b) => b.name.localeCompare(a.name, 'ru')); break;
+    case 'date-new-old': displayTracks.sort((a, b) => b.dateAdded - a.dateAdded); break;
+    case 'date-old-new': displayTracks.sort((a, b) => a.dateAdded - b.dateAdded); break;
+  }
+
   playlistGrid.innerHTML = '';
   updatePlaylistInfo(displayTracks);
-  
+
   const fragment = document.createDocumentFragment();
   displayTracks.forEach((track) => {
     const realIndex = tracks.findIndex(t => t.path === track.path);
     if (realIndex === -1) return;
-    
+
     const card = document.createElement('div');
     card.className = 'track-card' + (realIndex === currentIndex ? ' active-track' : '');
     card.dataset.index = realIndex;
-    
+
     const duration = track.duration ? formatTime(track.duration) : '--:--';
     const fileType = getFileTypeText(track.ext);
-    
+    const iconClass = realIndex === currentIndex && isPlaying ? 'pause' : 'play';
+
     card.innerHTML = `
       <div class="track-card-art">
         <i class="fa-solid fa-music"></i>
-        <div class="play-overlay"><i class="fa-solid fa-${realIndex === currentIndex && isPlaying ? 'pause' : 'play'}"></i></div>
+        <div class="play-overlay"><i class="fa-solid fa-${iconClass}"></i></div>
       </div>
       <div class="track-card-info">
         <div class="track-card-title">${escapeHtml(track.name)}</div>
@@ -356,28 +368,36 @@ function renderPlaylist() {
         <button class="track-menu-btn" data-index="${realIndex}"><i class="fa-solid fa-ellipsis"></i></button>
       </div>
     `;
-    
-    card.querySelector('.track-card-info').onclick = (e) => {
-      if (!e.target.closest('.track-menu-btn')) {
-        currentIndex = realIndex;
-        loadTrack(realIndex);
-        play();
-      }
-    };
-    
+
+    // Клик по обложке
+    card.querySelector('.track-card-art').addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentIndex = realIndex;
+      loadTrack(realIndex);
+      play();
+    });
+
+    // Клик по названию/инфо
+    card.querySelector('.track-card-info').addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentIndex = realIndex;
+      loadTrack(realIndex);
+      play();
+    });
+
+    // Контекстное меню
     const menuBtn = card.querySelector('.track-menu-btn');
-    menuBtn.onclick = (e) => {
+    menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       selectedTrackIndex = realIndex;
       showContextMenu(e, menuBtn);
-    };
-    
+    });
+
     fragment.appendChild(card);
   });
   playlistGrid.appendChild(fragment);
 }
 
-// Обновление информации в шапке (кол-во + общее время)
 function updatePlaylistInfo(displayTracks) {
   if (!playlistCount) return;
   playlistCount.textContent = `${displayTracks.length} треков`;
@@ -449,31 +469,23 @@ function updateRecentlyPlaying() {
 
 function loadTrackDurations() {
   tracks.forEach((track, i) => {
-    if (track.duration) return; // Пропускаем, если длительность уже известна
+    if (track.duration) return;
     
     const a = new Audio();
     a.preload = 'metadata';
     
-    // 🔧 ИСПРАВЛЕНИЕ: корректное преобразование пути в file:// URL
     let srcPath = track.path;
     if (!srcPath.startsWith('file://')) {
-      // Заменяем обратные слеши на прямые (для Windows) и добавляем протокол
       srcPath = 'file:///' + srcPath.replace(/\\/g, '/');
     }
     a.src = srcPath;
     
-    a.onloadedmetadata = () => { 
-      tracks[i].duration = a.duration; 
-      // Обновляем длительность в интерфейсе
-      renderPlaylist();
-      if (currentPage === 'all-songs' || currentPage === 'custom') {
-        updatePlaylistInfo(tracks);
-      }
+    a.onloadedmetadata = () => {
+      tracks[i].duration = a.duration;
+      renderPlaylist(); // Обновляем отображение длительности
     };
-    
-    // Обработка ошибок загрузки метаданных (чтобы не ломало выполнение)
     a.onerror = () => {
-      console.warn('Не удалось загрузить метаданные для:', track.path);
+      console.warn('Не удалось прочитать метаданные:', track.path);
       tracks[i].duration = null;
     };
   });
@@ -485,10 +497,8 @@ function loadTrack(index) {
   currentIndex = index;
   const track = tracks[index];
   
-  // ИСПРАВЛЕНИЕ ЗВУКА: корректный формат пути для локальных файлов
   let safePath = track.path;
   if (!safePath.startsWith('file://')) {
-    // Заменяем обратные слеши на прямые (для Windows) и добавляем протокол
     safePath = 'file:///' + safePath.replace(/\\/g, '/');
   }
   audio.src = safePath;
@@ -498,19 +508,12 @@ function loadTrack(index) {
   trackArtistEl.textContent = getFileTypeText(track.ext);
   totalTimeEl.textContent = track.duration ? formatTime(track.duration) : '--:--';
   
-  // Обновляем активный класс
-  document.querySelectorAll('.track-card').forEach(c => {
-    const ci = parseInt(c.dataset.index);
-    c.classList.toggle('active-track', ci === index);
-    const icon = c.querySelector('.play-overlay i');
-    if (icon) icon.className = `fa-solid fa-${ci === index && isPlaying ? 'pause' : 'play'}`;
-  });
-  
   const heart = likeBtn.querySelector('i');
   heart.className = track.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
   heart.style.color = track.liked ? '#fff' : '';
   
   updateRecentlyPlaying();
+  renderPlaylist();
 }
 
 // ===== Плеер =====
@@ -521,7 +524,7 @@ function play() {
   playIcon.className = 'fa-solid fa-pause';
   startProgress();
   updateRecentlyPlaying();
-  // loadTrack() не вызываем — трек уже загружен
+  renderPlaylist(); // Обновляем иконки в карточках
 }
 
 function pause() {
@@ -530,6 +533,7 @@ function pause() {
   playIcon.className = 'fa-solid fa-play';
   stopProgress();
   updateRecentlyPlaying();
+  renderPlaylist();
 }
 
 
@@ -584,25 +588,9 @@ function handleProgressClick(e) {
 function handleSort(option) {
   sortOptions.forEach(o => o.classList.remove('active'));
   option.classList.add('active');
-  const sortType = option.dataset.sort;
-  const currentPath = tracks[currentIndex]?.path;
-  
-  let displayTracks = currentCategory === 'all-songs' ? [...tracks] : tracks.filter(t => t.categories?.includes(currentCategory));
-  switch(sortType) {
-    case 'name-az': displayTracks.sort((a, b) => a.name.localeCompare(b.name)); break;
-    case 'name-za': displayTracks.sort((a, b) => b.name.localeCompare(a.name)); break;
-    case 'date-new-old': displayTracks.sort((a, b) => b.dateAdded - a.dateAdded); break;
-    case 'date-old-new': displayTracks.sort((a, b) => a.dateAdded - b.dateAdded); break;
-  }
-  
-  if (currentCategory !== 'all-songs') {
-    const others = tracks.filter(t => !t.categories?.includes(currentCategory));
-    tracks = [...displayTracks, ...others];
-  }
-  
-  if (currentPath) currentIndex = tracks.findIndex(t => t.path === currentPath);
-  renderPlaylist();
-  setTimeout(() => sortDropdown.classList.remove('open'), 150);
+  currentSortType = option.dataset.sort;
+  sortDropdown.classList.remove('open');
+  renderPlaylist(); // Перерисовываем с учётом сортировки
 }
 
 function toggleShuffle() { isShuffle = !isShuffle; shuffleBtn.classList.toggle('active', isShuffle); }
@@ -692,7 +680,7 @@ function createCategory() {
   const catId = `cat-${categoryCounter}`;
   if (!playlists[catId]) playlists[catId] = { name, trackPaths: new Set() };
   customCategories.push({ id: catId, name });
-  
+
   const catEl = document.createElement('div');
   catEl.className = 'nav-item custom-category';
   catEl.dataset.page = 'custom';
@@ -703,6 +691,42 @@ function createCategory() {
   categoriesList?.appendChild(catEl);
   closeModal();
   saveData();
+}
+
+function showTrackDetails(track) {
+  const details = [
+    ['Название', track.name],
+    ['Тип файла', getFileTypeText(track.ext)],
+    ['Путь', track.path],
+    ['Длительность', track.duration ? formatTime(track.duration) : 'Неизвестно'],
+    ['Добавлен', new Date(track.dateAdded).toLocaleDateString('ru-RU')],
+    ['В избранном', track.liked ? 'Да' : 'Нет']
+  ];
+  trackDetailsContent.innerHTML = details.map(([l, v]) =>
+    `<span class="track-details-label">${l}</span><span class="track-details-value">${escapeHtml(v)}</span>`
+  ).join('');
+}
+
+function renderSyncList() {
+  if (!syncConfigs.length) { 
+    syncListContent.innerHTML = '<div style="text-align:center;color:#666;padding:20px">Нет синхронизаций</div>'; 
+    return; 
+  }
+  syncListContent.innerHTML = syncConfigs.map((cfg, i) => {
+    const count = tracks.filter(t => t.synced === cfg.id).length;
+    return `<div class="sync-item"><span class="sync-item-name">#${i+1}</span><span class="sync-item-path" title="${escapeHtml(cfg.path)}">${escapeHtml(cfg.path)}</span><span class="sync-item-count">${count} песен</span></div>`;
+  }).join('');
+}
+
+function renderSyncCategories() {
+  const cats = [{ id: 'all-songs', name: 'Все песни', def: true, chk: true }];
+  customCategories.forEach(c => cats.push({ id: c.id, name: c.name, def: false, chk: syncConfigs[0]?.categories?.includes(c.id) ?? false }));
+  syncCategoriesContent.innerHTML = cats.map(c => 
+    `<label class="category-toggle${c.def ? ' default' : ''}">
+      <input type="checkbox" ${c.def ? 'checked disabled' : c.chk ? 'checked' : ''} data-category-id="${c.id}" ${!c.def ? 'onchange="toggleSyncCategory(this)"' : ''}>
+      <span>${escapeHtml(c.name)}${c.def ? ' (по умолчанию)' : ''}</span>
+    </label>`
+  ).join('');
 }
 
 function deleteCategory(catId, el) {
