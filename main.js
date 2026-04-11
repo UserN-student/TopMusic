@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const appConfig = require('./config');
@@ -86,10 +86,20 @@ ipcMain.handle('check-file-exists', async (_, filePath) => {
   }
 });
 
+// === НОВОЕ: Открыть папку с выделенным файлом ===
+ipcMain.handle('open-folder-with-file', async (_, filePath) => {
+  try {
+    shell.showItemInFolder(filePath);
+    return true;
+  } catch (e) {
+    console.error('Show item error:', e);
+    return false;
+  }
+});
+
 // Сохранить данные
 ipcMain.handle('save-data', async (_, data) => {
   try {
-    // Преобразуем Sets в массивы для JSON
     const serializable = JSON.parse(JSON.stringify(data, (key, value) =>
       value instanceof Set ? Array.from(value) : value
     ));
@@ -106,7 +116,6 @@ ipcMain.handle('load-data', async () => {
   try {
     const content = await fs.readFile(DATA_PATH, 'utf-8');
     const data = JSON.parse(content);
-    // Преобразуем массивы обратно в Sets для плейлистов
     if (data.playlists) {
       Object.values(data.playlists).forEach(p => {
         if (p.trackPaths) p.trackPaths = new Set(p.trackPaths);

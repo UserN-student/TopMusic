@@ -24,7 +24,8 @@
         .modal-close, .delete-cat, .window-controls, .window-controls *,
         .playlist-grid, .playlist-grid *, .song-card, .toggle-switch,
         .add-track-btn, .track-card, .track-menu-btn, .context-menu,
-        .sync-item, .playlist-checkbox, .sync-top-btn {
+        .sync-item, .playlist-checkbox, .sync-top-btn, .settings-top-btn,
+        .selection-bar, .selection-bar * {
             -webkit-app-region: no-drag !important;
         }
 
@@ -160,15 +161,15 @@
         .sort-option .check-icon { opacity: 0; font-size: 12px; }
         .sort-option.active .check-icon { opacity: 1; }
 
-        .sync-top-btn {
+        .settings-top-btn {
             display: flex; align-items: center; gap: 6px;
             padding: 8px 14px; background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
             color: #aaa; font-size: 13px; cursor: pointer; transition: all 0.2s;
             font-family: 'Inter', sans-serif;
         }
-        .sync-top-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
-        .sync-top-btn.hidden { display: none; }
+        .settings-top-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .settings-top-btn.hidden { display: none; }
 
         .graph-section {
             flex: 1; min-height: 0; padding: 24px 32px; margin-bottom: 100px;
@@ -221,7 +222,6 @@
         }
         .add-folder-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
-        /* === СЕТКА КАРТОЧЕК (Оптимизировано) === */
         .playlist-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -240,7 +240,6 @@
             align-items: center;
             gap: 14px;
             position: relative;
-            /* Оптимизация рендеринга больших списков без мерцания */
             content-visibility: auto;
             contain-intrinsic-size: 0 80px;
         }
@@ -252,6 +251,10 @@
         .track-card.active-track {
             background: rgba(255,255,255,0.1);
             border-color: rgba(255,255,255,0.2);
+        }
+        .track-card.selected {
+            background: rgba(255,255,255,0.12) !important;
+            border-color: rgba(255,255,255,0.25) !important;
         }
         
         .track-card-art {
@@ -399,6 +402,133 @@
         .about-info p { font-size: 14px; line-height: 1.7; color: #999; }
         .about-info strong { color: #fff; }
 
+        /* === СИНХРОНИЗАЦИЯ В НАСТРОЙКАХ === */
+        .sync-section {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .sync-section h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sync-section p {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+        .sync-folder-btn {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            color: #aaa;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: 'Inter', sans-serif;
+        }
+        .sync-folder-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .sync-list {
+            margin-top: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .sync-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+        }
+        .sync-item-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .sync-item-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .sync-item-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+        }
+        .sync-item-path {
+            font-size: 11px;
+            color: #666;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .sync-item-count {
+            font-size: 11px;
+            color: #666;
+            background: rgba(255,255,255,0.06);
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .sync-categories {
+            margin-top: 16px;
+        }
+        .sync-categories-title {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .category-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .category-toggle:hover {
+            background: rgba(255,255,255,0.06);
+        }
+        .category-toggle input {
+            cursor: pointer;
+        }
+        .category-toggle span {
+            font-size: 13px;
+            color: #ccc;
+        }
+        .category-toggle.default {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
         .player-bar {
             position: fixed; bottom: 0; left: 280px; right: 0;
             width: calc(100% - 280px); height: 80px;
@@ -523,9 +653,18 @@
             padding: 32px; width: 400px; max-width: 90vw;
             box-shadow: 0 24px 80px rgba(0,0,0,0.6);
             transform: translateY(20px) scale(0.96); transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
         }
         .modal-overlay.open .modal-box { transform: translateY(0) scale(1); }
-        .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+        .modal-header { 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
         .modal-header h3 { font-size: 18px; font-weight: 600; }
         .modal-close {
             background: rgba(255,255,255,0.06); border: none; color: #888;
@@ -547,6 +686,10 @@
             flex: 1; padding: 12px; border-radius: 10px; font-size: 14px;
             font-weight: 500; cursor: pointer; transition: all 0.2s;
             font-family: 'Inter', sans-serif; border: none;
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         .modal-btn-cancel { background: rgba(255,255,255,0.06); color: #888; }
         .modal-btn-cancel:hover { background: rgba(255,255,255,0.1); color: #ccc; }
@@ -554,8 +697,12 @@
         .modal-btn-create:hover { background: #e0e0e0; }
         .modal-btn-create:disabled { background: #333; color: #666; cursor: not-allowed; }
         
-        .modal-body { margin: 16px 0; }
-        .modal-text { font-size: 14px; color: #aaa; line-height: 1.6; }
+        .modal-body { 
+            margin: 8px 0 16px;
+            flex: 1;
+            min-height: 0;
+        }
+        .modal-text { font-size: 14px; color: #aaa; line-height: 1.6; word-break: break-word; }
         .modal-text strong { color: #fff; }
         
         .playlist-list { max-height: 200px; overflow-y: auto; margin: 12px 0; }
@@ -577,37 +724,8 @@
         .playlist-name { font-size: 13px; color: #ccc; flex: 1; }
         .playlist-count { font-size: 11px; color: #666; }
         
-        .sync-section { margin: 16px 0; }
-        .sync-btn {
-            width: 100%; padding: 12px; background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-            color: #aaa; font-size: 14px; cursor: pointer; transition: all 0.2s;
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-        }
-        .sync-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
-        .sync-list { margin-top: 16px; }
-        .sync-item {
-            display: flex; align-items: center; gap: 12px; padding: 12px;
-            background: rgba(255,255,255,0.03); border-radius: 10px; margin-bottom: 8px;
-        }
-        .sync-item-name { font-size: 13px; font-weight: 500; color: #fff; min-width: 120px; }
-        .sync-item-path { font-size: 12px; color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .sync-item-count { font-size: 12px; color: #666; background: rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 6px; }
-        
-        .sync-categories { margin-top: 16px; }
-        .sync-categories-title { font-size: 13px; color: #aaa; margin-bottom: 8px; }
-        .category-toggle {
-            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-            background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 6px;
-            cursor: pointer; transition: background 0.15s;
-        }
-        .category-toggle:hover { background: rgba(255,255,255,0.06); }
-        .category-toggle input { cursor: pointer; }
-        .category-toggle span { font-size: 13px; color: #ccc; }
-        .category-toggle.default { opacity: 0.7; cursor: not-allowed; }
-        
         .missing-file-icon {
-            font-size: 48px; color: #e81123; margin-bottom: 16px; display: block;
+            font-size: 48px; color: #e81123; margin: 0 auto 16px; display: block;
         }
         .missing-file-path {
             font-size: 12px; color: #888; background: rgba(255,255,255,0.05);
@@ -620,26 +738,184 @@
             font-weight: 500; cursor: pointer; transition: all 0.2s;
             font-family: 'Inter', sans-serif; border: none; display: flex;
             align-items: center; justify-content: center; gap: 8px;
+            min-height: 40px;
         }
         .missing-file-btn-copy { background: rgba(255,255,255,0.06); color: #888; }
         .missing-file-btn-copy:hover { background: rgba(255,255,255,0.1); color: #fff; }
         .missing-file-btn-ok { background: #fff; color: #000; }
         .missing-file-btn-ok:hover { background: #e0e0e0; }
         
-        .track-details-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
-        .track-details-label { font-size: 12px; color: #666; }
-        .track-details-value { font-size: 13px; color: #ccc; font-weight: 500; }
+        /* === ДЕТАЛИ ТРЕКА — БЛОКИ + КОПИРОВАНИЕ === */
+        .track-details-block {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .track-details-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .track-details-row:last-child { border-bottom: none; }
+        .track-details-label {
+            font-size: 12px;
+            color: #666;
+        }
+        .track-details-value {
+            font-size: 13px;
+            color: #ccc;
+            font-weight: 500;
+            text-align: right;
+            max-width: 70%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .track-details-value.mono {
+            font-family: monospace;
+            font-size: 11px;
+            color: #888;
+            word-break: break-all;
+            white-space: normal;
+            text-align: left;
+            max-width: 100%;
+        }
+        .copy-name-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #aaa;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-left: auto;
+            align-self: flex-end;
+        }
+        .copy-name-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .copy-name-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+
+        /* === МОДАЛЬНОЕ ОКНО УДАЛЕНИЯ === */
+        .delete-modal-content {
+            text-align: center;
+            padding: 8px 0;
+        }
+        .delete-modal-icon {
+            font-size: 40px;
+            color: #ef4444;
+            margin: 0 auto 16px;
+            display: block;
+        }
+        .delete-modal-text {
+            font-size: 14px;
+            color: #aaa;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        .delete-modal-text strong {
+            color: #fff;
+        }
+        .delete-modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .delete-modal-btn {
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+            border: none;
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .delete-modal-btn-cancel {
+            background: rgba(255,255,255,0.06);
+            color: #888;
+        }
+        .delete-modal-btn-cancel:hover {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+        }
+        .delete-modal-btn-confirm {
+            background: #ef4444;
+            color: #fff;
+        }
+        .delete-modal-btn-confirm:hover {
+            background: #dc2626;
+        }
+
+        /* === ПАНЕЛЬ ВЫДЕЛЕНИЯ === */
+        .selection-bar {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 10px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #fff;
+        }
+        .selection-bar #selectionCount {
+            font-weight: 600;
+        }
+        .delete-selected-btn,
+        .cancel-selection-btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+        .delete-selected-btn {
+            background: #ef4444;
+            color: white;
+        }
+        .delete-selected-btn:hover {
+            background: #dc2626;
+        }
+        .cancel-selection-btn {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+        }
+        .cancel-selection-btn:hover {
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+        }
         
         .svg-icon { width: 16px; height: 16px; fill: currentColor; }
 
-        /* === ИСПРАВЛЕНИЕ КОНТЕКСТНОГО МЕНЮ === */
+        /* === КОНТЕКСТНОЕ МЕНЮ === */
         .context-menu {
             position: fixed;
             background: #1a1a1a;
             border: 1px solid #2a2a2a;
             border-radius: 12px;
             padding: 6px;
-            min-width: 200px;
+            min-width: 220px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.5);
             z-index: 10001;
             opacity: 0;
@@ -661,7 +937,35 @@
         }
         .context-item:hover { background: rgba(255,255,255,0.08); }
         .context-item i { width: 16px; text-align: center; font-size: 12px; }
+        .context-item.danger { color: #ff6b6b; }
+        .context-item.danger:hover { background: rgba(239, 68, 68, 0.1); }
         .context-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
+        /* === ФИКС: Название трека + кнопка копирования === */
+        .track-details-row.name-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .track-details-row.name-row .track-details-label {
+        flex-shrink: 0;
+        width: 80px;
+        }
+        .track-details-row.name-row .track-details-value {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: right;
+        max-width: calc(100% - 120px); /*=label(80px)+gap(8px)+btn(36px)*/
+        }
+        .track-details-row.name-row .copy-name-btn {
+        flex-shrink: 0;
+        margin: 0;
+        align-self: center;
+        }
     </style>
 </head>
 <body>
@@ -684,7 +988,7 @@
             <div class="nav-divider"></div>
             <div id="categoriesList">
                 <div class="nav-item" data-page="all-songs" onclick="switchPage(this)">
-                    <i class="fa-solid fa-music"></i><span>Все песни</span>
+                    <i class="fa-solid fa-music"></i><span>Все треки</span>
                 </div>
             </div>
         </nav>
@@ -697,9 +1001,10 @@
         <div class="top-bar">
             <h2 class="top-bar-title" id="pageTitle">Главная</h2>
             <div class="top-bar-actions">
-                <button class="sync-top-btn hidden" id="syncTopBtn" title="Синхронизация папок">
-                    <svg class="svg-icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.66,6.32L5.27,5.35c-0.22-0.08-0.47,0-0.59,0.22L2.76,8.87 C2.64,9.08,2.7,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
-                    Синхронизация
+                <!-- Кнопка "Настройки" (показывается только в категориях) -->
+                <button class="settings-top-btn hidden" id="settingsTopBtn" title="Открыть настройки">
+                    <i class="fa-solid fa-gear"></i>
+                    Настройки
                 </button>
                 
                 <div class="sort-container hidden" id="sortContainer">
@@ -742,13 +1047,14 @@
                 <span style="color:#666;font-size:13px" id="playlistCount">0 треков • 0:00</span>
                 <div style="display:flex;gap:8px">
                     <button class="add-track-btn" id="addTrackBtn">
-                        <i class="fa-solid fa-plus"></i> Добавить песню
+                        <i class="fa-solid fa-plus"></i> Добавить трек
                     </button>
                     <button class="add-folder-btn" id="addFolderBtn">
                         <i class="fa-solid fa-folder-open"></i> Добавить папку
                     </button>
                 </div>
             </div>
+            <!-- Панель выделения (добавляется динамически) -->
             <div class="playlist-grid" id="playlistGrid"></div>
         </div>
 
@@ -764,13 +1070,28 @@
                     <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
                 </div>
             </div>
+
+            <!-- === СИНХРОНИЗАЦИЯ ПЕРЕНЕСЕНА СЮДА === -->
+            <div class="settings-group sync-section">
+                <h4><i class="fa-solid fa-rotate"></i> Синхронизация папок</h4>
+                <p>Автоматическое отслеживание изменений в выбранных директориях. Новые файлы добавятся в указанные категории.</p>
+                <button class="sync-folder-btn" id="syncFolderBtn">
+                    <i class="fa-solid fa-folder-plus"></i> Выбрать папку
+                </button>
+                <div class="sync-list" id="syncListContent"></div>
+                <div class="sync-categories">
+                    <div class="sync-categories-title">Добавлять треки в категории:</div>
+                    <div id="syncCategoriesContent"></div>
+                </div>
+            </div>
+
             <div class="settings-group">
                 <h3>О приложении</h3>
                 <div class="about-info">
                     <p>Разработано для <strong>Конкурса в колледже IT TOP</strong> в образовательных целях.</p>
                 </div>
                 <div class="setting-row" style="margin-top:12px;border:none">
-                    <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.0.8</span></div></div>
+                    <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.1.2</span></div></div>
                 </div>
             </div>
         </div>
@@ -819,13 +1140,24 @@
         </div>
     </main>
 
-    <!-- Контекстное меню трека -->
+    <!-- === КОНТЕКСТНОЕ МЕНЮ ТРЕКА === -->
     <div class="context-menu" id="trackContextMenu">
         <div class="context-item" data-action="details">
             <i class="fa-solid fa-circle-info"></i><span>Подробнее</span>
         </div>
         <div class="context-item" data-action="playlist">
             <i class="fa-solid fa-list"></i><span>Добавить в плейлист</span>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-item" data-action="select">
+            <i class="fa-solid fa-check"></i><span>Выделить</span>
+        </div>
+        <div class="context-item" data-action="open-explorer">
+            <i class="fa-solid fa-folder-open"></i><span>Открыть в проводнике</span>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-item danger" data-action="delete">
+            <i class="fa-solid fa-trash"></i><span>Удалить</span>
         </div>
     </div>
 
@@ -844,14 +1176,15 @@
         </div>
     </div>
 
+    <!-- === ДЕТАЛИ ТРЕКА — ПЕРЕДЕЛАНО === -->
     <div class="modal-overlay" id="detailsModal">
         <div class="modal-box">
             <div class="modal-header">
-                <h3>Детали трека</h3>
+                <h3>Информация о треке</h3>
                 <button class="modal-close" data-modal="detailsModal"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body">
-                <div class="track-details-grid" id="trackDetailsContent"></div>
+                <div id="trackDetailsContent"></div>
             </div>
             <div class="modal-actions">
                 <button class="modal-btn modal-btn-cancel" data-modal="detailsModal">Закрыть</button>
@@ -875,24 +1208,20 @@
         </div>
     </div>
 
-    <div class="modal-overlay" id="syncModal">
+    <!-- === МОДАЛЬНОЕ ОКНО УДАЛЕНИЯ === -->
+    <div class="modal-overlay" id="deleteModal">
         <div class="modal-box">
             <div class="modal-header">
-                <h3>Синхронизация</h3>
-                <button class="modal-close" data-modal="syncModal"><i class="fa-solid fa-xmark"></i></button>
+                <h3>Подтверждение удаления</h3>
+                <button class="modal-close" data-modal="deleteModal"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div class="modal-body">
-                <button class="sync-btn" id="syncFolderBtn">
-                    <i class="fa-solid fa-folder-plus"></i> Выбрать папку для синхронизации
-                </button>
-                <div class="sync-list" id="syncListContent"></div>
-                <div class="sync-categories">
-                    <div class="sync-categories-title">Добавлять песни в категории:</div>
-                    <div id="syncCategoriesContent"></div>
+            <div class="modal-body delete-modal-content">
+                <i class="fa-solid fa-circle-exclamation delete-modal-icon"></i>
+                <p class="delete-modal-text">Трек <strong id="deleteTrackName">название</strong> будет безвозвратно удалён из библиотеки.</p>
+                <div class="delete-modal-actions">
+                    <button class="delete-modal-btn delete-modal-btn-cancel" data-modal="deleteModal">Отмена</button>
+                    <button class="delete-modal-btn delete-modal-btn-confirm" id="confirmDeleteBtn">Удалить</button>
                 </div>
-            </div>
-            <div class="modal-actions">
-                <button class="modal-btn modal-btn-cancel" data-modal="syncModal">Закрыть</button>
             </div>
         </div>
     </div>
@@ -905,7 +1234,7 @@
             </div>
             <div class="modal-body">
                 <i class="fa-solid fa-circle-exclamation missing-file-icon"></i>
-                <p class="modal-text">Песня <strong id="missingFileName">название</strong> не найдена по пути:</p>
+                <p class="modal-text">Трек <strong id="missingFileName">название</strong> не найден по пути:</p>
                 <div class="missing-file-path" id="missingFilePath">/path/to/file.mp3</div>
                 <p class="modal-text" style="font-size:12px;color:#666">Файл будет удалён из библиотеки.</p>
             </div>
