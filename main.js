@@ -165,14 +165,18 @@ function parseID3(buffer) {
       if (frameId === 'APIC') {
         try {
           let i = 1;
-          while (i < frameData.length && frameData[i] !== 0) i++;
-          i++; // skip mime null
+          // Read MIME type
+          let mimeEnd = i;
+          while (mimeEnd < frameData.length && frameData[mimeEnd] !== 0) mimeEnd++;
+          const mimeType = frameData.slice(i, mimeEnd).toString('ascii').toLowerCase() || 'image/jpeg';
+          i = mimeEnd + 1; // skip mime null
           i++; // skip picture type
           while (i < frameData.length && frameData[i] !== 0) i++;
           i++; // skip description null
           const imgData = frameData.slice(i);
           if (imgData.length > 0) {
-            result.cover = 'data:image/jpeg;base64,' + imgData.toString('base64');
+            const mime = mimeType.includes('png') ? 'image/png' : mimeType.includes('gif') ? 'image/gif' : 'image/jpeg';
+            result.cover = `data:${mime};base64,` + imgData.toString('base64');
           }
         } catch {}
       }

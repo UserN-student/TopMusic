@@ -162,6 +162,7 @@ async function init() {
   setupEventListeners();
   updateNowPlayingCard();
   applyAnimationSetting();
+  loadUIPreferences();
   await checkMissingFiles();
   initGraph();
 }
@@ -258,7 +259,7 @@ function setupEventListeners() {
     if (!e.target.closest('.sort-container')) {
       sortDropdown.classList.remove('open');
     }
-    if (!e.target.closest('.track-menu-btn') && !e.target.closest('.context-menu') && !e.target.closest('.track-card')) {
+    if (!e.target.closest('.context-menu')) {
       trackContextMenu.classList.remove('open');
     }
   });
@@ -307,6 +308,24 @@ function setupEventListeners() {
     }, { passive: false });
   }
   
+  // Fix scroll on all scrollable sections — Electron blocks wheel on empty areas
+  const scrollables = [
+    document.getElementById('graphSection'),
+    document.getElementById('playlistView'),
+    document.getElementById('settingsView'),
+  ];
+  scrollables.forEach(el => {
+    if (!el) return;
+    el.addEventListener('wheel', (e) => {
+      if (e.target === el || el.contains(e.target)) {
+        // Let native scroll handle it, but ensure the element gets focus
+        el.focus?.();
+      }
+    }, { passive: true });
+    // Make element focusable so wheel events work
+    if (!el.getAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+  });
+  
   // Prevent browser context menu
   document.addEventListener('contextmenu', (e) => {
     if (!e.target.closest('.context-menu') && !e.target.closest('input') && !e.target.closest('textarea')) {
@@ -318,8 +337,7 @@ function setupEventListeners() {
   const resetLibraryBtn = document.getElementById('resetLibraryBtn');
   if (resetLibraryBtn) {
     resetLibraryBtn.onclick = () => {
-      if (confirm('Очистить всю библиотеку? Это действие нельзя отменить.')) {
-        tracks = [];
+      if (confirm('Очистить всю библиотеку? Это действие нельзя отменить.')) {        tracks = [];
         recentlyPlayed = [];
         playlists = { 'all-songs': { name: 'Все треки', trackPaths: new Set() } };
         currentIndex = -1;
@@ -339,6 +357,17 @@ function setupEventListeners() {
         showToast('Библиотека очищена');
       }
     };
+  }
+  
+  // Слайдер масштаба
+  const uiScaleSlider = document.getElementById('uiScaleSlider');
+  if (uiScaleSlider) {
+    uiScaleSlider.addEventListener('input', () => {
+      const v = parseFloat(uiScaleSlider.value);
+      window.applyUIScale(v);
+      const valEl = document.getElementById('uiScaleVal');
+      if (valEl) valEl.textContent = v.toFixed(1) + '×';
+    });
   }
 }
 
@@ -699,6 +728,15 @@ function renderPlaylist() {
     card.className = 'track-card' + (isActive ? ' active-track' : '') + (isSelected ? ' selected' : '');
     card.dataset.index = realIndex;
     card.dataset.path = track.path;
+    
+    // Применяем кастомный цвет карточки
+    if (track.cardColor && !isSelected) {
+      const hex = track.cardColor;
+      const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+      card.style.background = `rgba(${r},${g},${b},0.12)`;
+      card.style.borderColor = `rgba(${r},${g},${b},0.35)`;
+      card.style.setProperty('--card-accent', hex);
+    }
 
     const duration = track.duration ? formatTime(track.duration) : '--:--';
     const fileType = getFileTypeText(track.ext);
@@ -1076,6 +1114,8 @@ function updateRecentlyPlaying() {
 // ===== ЗАГРУЗКА МЕТАДАННЫХ =====
 async function loadMetadataForTrack(track) {
   if (!window.electronAPI?.getAudioMetadata) return;
+  // Skip demo tracks
+  if (track.path.startsWith('demo-')) return;
   try {
     const meta = await window.electronAPI.getAudioMetadata(track.path);
     if (meta) {
@@ -1083,7 +1123,7 @@ async function loadMetadataForTrack(track) {
       if (meta.title && meta.title.trim()) { track.name = meta.title.trim(); changed = true; }
       if (meta.artist && meta.artist.trim()) { track.artist = meta.artist.trim(); changed = true; }
       if (meta.album) track.album = meta.album;
-      if (meta.cover) { track.cover = meta.cover; changed = true; }
+      if (meta.cover && meta.cover.length > 50) { track.cover = meta.cover; changed = true; }
       if (changed) {
         // Update card in-place if visible
         const card = playlistGrid?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
@@ -1098,8 +1138,10 @@ async function loadMetadataForTrack(track) {
             if (!existing) {
               const img = document.createElement('img');
               img.src = track.cover;
-              img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:10px;';
+              img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
               artEl.insertBefore(img, artEl.firstChild);
+            } else {
+              existing.src = track.cover;
             }
           }
         }
@@ -1109,9 +1151,27 @@ async function loadMetadataForTrack(track) {
           trackArtistEl.textContent = track.artist || getFileTypeText(track.ext);
           updateNowPlayingCard();
         }
+        // Update recent cards
+        const recentCard = recentCards?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
+        if (recentCard && track.cover) {
+          const artEl = recentCard.querySelector('.song-card-art');
+          if (artEl) {
+            let img = artEl.querySelector('img');
+            if (!img) {
+              img = document.createElement('img');
+              img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
+              artEl.insertBefore(img, artEl.firstChild);
+            }
+            img.src = track.cover;
+          }
+          const artistEl = recentCard.querySelector('.song-card-artist');
+          if (artistEl) artistEl.textContent = track.artist || getFileTypeText(track.ext);
+        }
       }
     }
-  } catch {}
+  } catch(e) {
+    console.warn('Metadata error:', track.path, e);
+  }
 }
 
 // ===== ЗАГРУЗКА ДЛИТЕЛЬНОСТИ =====
@@ -1440,6 +1500,7 @@ window.switchPage = function(el) {
   switch(currentPage) {
     case 'home':
       graph?.classList.add('active');
+      renderRecent();
       break;
     case 'settings':
       settings?.classList.add('active');
@@ -1682,25 +1743,58 @@ function updateSettingsStats() {
   if (likedEl) likedEl.textContent = tracks.filter(t => t.liked).length;
 }
 
-// ===== СОХРАНЕНИЕ НАСТРОЕК ТОГЛОВ =====
+// ===== ГРАФ АКТИВНОСТИ — УДАЛЁН =====
+function initGraph() { /* граф удалён */ }
 window.saveSettingToggle = function(key, value) {
   if (key === 'animations') {
     document.body.classList.toggle('no-animations', !value);
   }
-  if (key === 'graph') {
-    const graphContainer = document.querySelector('.graph-container');
-    const canvas = document.getElementById('graphCanvas');
-    if (graphContainer) graphContainer.style.display = value ? '' : 'none';
-    if (value && canvas) {
-      graphEventsSetup = false;
-      initGraph();
-    } else if (!value && graphAnimFrame) {
-      cancelAnimationFrame(graphAnimFrame);
-      graphAnimFrame = null;
-    }
-  }
   showToast(value ? 'Включено' : 'Выключено');
 };
+
+// ===== МАСШТАБ ИНТЕРФЕЙСА =====
+window.applyUIScale = function(scale) {
+  document.documentElement.style.setProperty('--ui-scale', scale);
+  // Save to localStorage for persistence
+  try { localStorage.setItem('tm_ui_scale', scale); } catch {}
+};
+
+// ===== ЦВЕТ ФОНА =====
+window.applyBgColor = function(color) {
+  document.documentElement.style.setProperty('--bg-color', color);
+  document.body.style.background = color;
+  document.querySelector('.main-content').style.background = color;
+  document.querySelector('.sidebar').style.background = adjustColor(color, 5);
+  try { localStorage.setItem('tm_bg_color', color); } catch {}
+};
+
+function adjustColor(hex, amount) {
+  const num = parseInt(hex.replace('#',''), 16);
+  const r = Math.min(255, ((num >> 16) & 0xff) + amount);
+  const g = Math.min(255, ((num >> 8) & 0xff) + amount);
+  const b = Math.min(255, (num & 0xff) + amount);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+function loadUIPreferences() {
+  try {
+    const scale = localStorage.getItem('tm_ui_scale');
+    if (scale) {
+      const s = parseFloat(scale);
+      document.documentElement.style.setProperty('--ui-scale', s);
+      const slider = document.getElementById('uiScaleSlider');
+      const val = document.getElementById('uiScaleVal');
+      if (slider) slider.value = s;
+      if (val) val.textContent = s.toFixed(1) + '×';
+    }
+    const bg = localStorage.getItem('tm_bg_color');
+    if (bg) {
+      window.applyBgColor(bg);
+      const picker = document.getElementById('bgColorPicker');
+      if (picker) picker.value = bg;
+    }
+  } catch {}
+}
 
 function handleKeyDown(e) {
   if (e.code === 'Space' && !e.target.matches('input, textarea')) {
@@ -1794,7 +1888,7 @@ function updateNowPlayingCard() {
       if (!img) {
         img = document.createElement('img');
         img.alt = '';
-        img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:12px;';
+        img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:10px;';
         artEl.insertBefore(img, artEl.firstChild);
       }
       img.src = track.cover;
@@ -1877,6 +1971,20 @@ function openEditTrackModal(trackIndex) {
     reader.readAsDataURL(file);
   };
   
+  // Цвет карточки
+  const colorPicker = document.getElementById('editTrackColor');
+  const colorReset = document.getElementById('editTrackColorReset');
+  if (colorPicker) {
+    colorPicker.value = track.cardColor || '#ffffff';
+    colorPicker.oninput = () => { track._pendingColor = colorPicker.value; };
+  }
+  if (colorReset) {
+    colorReset.onclick = () => {
+      track._pendingColor = null;
+      if (colorPicker) colorPicker.value = '#ffffff';
+    };
+  }
+
   // EQ
   const eqGrid = document.getElementById('eqGrid');
   const eq = track.eq || Array(10).fill(0);
@@ -1895,6 +2003,9 @@ function openEditTrackModal(trackIndex) {
     document.getElementById('editTrackArtist').value = track._origArtist || '';
     speedSlider.value = 1;
     speedVal.textContent = '1.00×';
+    // Сброс цвета
+    if (colorPicker) colorPicker.value = '#ffffff';
+    track._pendingColor = null;
     EQ_BANDS.forEach((_, i) => {
       document.getElementById(`eqRange${i}`).value = 0;
       document.getElementById(`eqVal${i}`).textContent = '0';
@@ -1939,6 +2050,12 @@ function saveEditTrack(trackIndex) {
     delete track._pendingCover;
   }
   
+  // Применяем цвет карточки
+  if (track._pendingColor !== undefined) {
+    track.cardColor = track._pendingColor || null;
+    delete track._pendingColor;
+  }
+  
   // Применяем скорость если это текущий трек
   if (currentIndex === trackIndex) {
     audio.playbackRate = track.speed || 1;
@@ -1958,292 +2075,6 @@ function applyAnimationSetting() {
   const animToggle = document.getElementById('animationsToggle');
   const enabled = animToggle ? animToggle.classList.contains('on') : true;
   document.body.classList.toggle('no-animations', !enabled);
-}
-
-// ===== ГРАФ АКТИВНОСТИ (Canvas) =====
-let graphNodes = [];
-let graphEdges = [];
-let graphTransform = { x: 0, y: 0, scale: 1 };
-let graphDragging = null;
-let graphPanning = false;
-let graphPanStart = null;
-let graphAnimFrame = null;
-let graphHover = null;
-let graphEventsSetup = false;
-
-function initGraph() {
-  const canvas = document.getElementById('graphCanvas');
-  if (!canvas) return;
-  
-  // Build nodes
-  graphNodes = [];
-  graphEdges = [];
-  graphTransform = { x: 0, y: 0, scale: 1 };
-  
-  // Wait for canvas to have real dimensions
-  requestAnimationFrame(() => {
-    const w = canvas.offsetWidth || 600;
-    const h = canvas.offsetHeight || 400;
-    canvas.width = w;
-    canvas.height = h;
-    _buildGraphData(canvas, w, h);
-    if (!graphEventsSetup) {
-      setupGraphEvents(canvas);
-      graphEventsSetup = true;
-    }
-    if (graphAnimFrame) cancelAnimationFrame(graphAnimFrame);
-    runGraphLoop(canvas);
-  });
-}
-
-function _buildGraphData(canvas, w, h) {
-  
-  // Center "You" node
-  const youNode = { id: 'you', label: 'Вы', type: 'you', x: w / 2, y: h / 2, vx: 0, vy: 0, r: 28 };
-  graphNodes.push(youNode);
-  
-  // Category nodes
-  const cats = [{ id: 'all-songs', name: 'Все треки' }, ...customCategories];
-  cats.forEach((cat, i) => {
-    const angle = (i / cats.length) * Math.PI * 2;
-    const dist = Math.min(w, h) * 0.28;
-    graphNodes.push({
-      id: cat.id, label: cat.name, type: 'category',
-      x: w / 2 + Math.cos(angle) * dist,
-      y: h / 2 + Math.sin(angle) * dist,
-      vx: 0, vy: 0, r: 18
-    });
-    graphEdges.push({ from: 'you', to: cat.id });
-  });
-  
-  // Track nodes (max 30)
-  const displayTracks = tracks.slice(0, 30);
-  displayTracks.forEach((track, i) => {
-    const angle = (i / displayTracks.length) * Math.PI * 2;
-    const dist = Math.min(w, h) * 0.45;
-    graphNodes.push({
-      id: track.path, label: track.name, type: 'track',
-      x: w / 2 + Math.cos(angle) * dist + (Math.random() - 0.5) * 40,
-      y: h / 2 + Math.sin(angle) * dist + (Math.random() - 0.5) * 40,
-      vx: 0, vy: 0, r: 10, track
-    });
-    // Connect to categories
-    (track.categories || ['all-songs']).forEach(catId => {
-      if (graphNodes.find(n => n.id === catId)) {
-        graphEdges.push({ from: catId, to: track.path });
-      }
-    });
-  });
-  
-  // Same-artist edges
-  for (let i = 0; i < displayTracks.length; i++) {
-    for (let j = i + 1; j < displayTracks.length; j++) {
-      if (displayTracks[i].artist && displayTracks[i].artist === displayTracks[j].artist) {
-        graphEdges.push({ from: displayTracks[i].path, to: displayTracks[j].path, type: 'artist' });
-      }
-    }
-  }
-}
-
-function setupGraphEvents(canvas) {
-  canvas.onmousedown = (e) => {
-    e.stopPropagation();
-    const pos = canvasPos(canvas, e);
-    const node = hitNode(pos);
-    if (node) {
-      graphDragging = node;
-      node.vx = 0; node.vy = 0;
-    } else {
-      graphPanning = true;
-      graphPanStart = { x: e.clientX - graphTransform.x, y: e.clientY - graphTransform.y };
-    }
-  };
-  canvas.onmousemove = (e) => {
-    const pos = canvasPos(canvas, e);
-    if (graphDragging) {
-      graphDragging.x = (e.clientX - graphTransform.x) / graphTransform.scale;
-      graphDragging.y = (e.clientY - graphTransform.y) / graphTransform.scale;
-    } else if (graphPanning) {
-      graphTransform.x = e.clientX - graphPanStart.x;
-      graphTransform.y = e.clientY - graphPanStart.y;
-    } else {
-      graphHover = hitNode(pos);
-      canvas.style.cursor = graphHover ? 'pointer' : 'default';
-    }
-  };
-  canvas.onmouseup = () => { graphDragging = null; graphPanning = false; };
-  canvas.onmouseleave = () => { graphDragging = null; graphPanning = false; graphHover = null; };
-  canvas.onwheel = (e) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    graphTransform.scale = Math.max(0.3, Math.min(3, graphTransform.scale * factor));
-  };
-}
-
-function canvasPos(canvas, e) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: (e.clientX - rect.left - graphTransform.x) / graphTransform.scale,
-    y: (e.clientY - rect.top - graphTransform.y) / graphTransform.scale
-  };
-}
-
-function hitNode(pos) {
-  for (let i = graphNodes.length - 1; i >= 0; i--) {
-    const n = graphNodes[i];
-    const dx = pos.x - n.x, dy = pos.y - n.y;
-    if (Math.sqrt(dx * dx + dy * dy) < n.r + 4) return n;
-  }
-  return null;
-}
-
-function runGraphLoop(canvas) {
-  const ctx = canvas.getContext('2d');
-  
-  function loop() {
-    // Resize canvas
-    const w = canvas.offsetWidth;
-    const h = canvas.offsetHeight;
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
-    
-    // Physics
-    if (!graphDragging) {
-      graphNodes.forEach(n => {
-        if (n === graphDragging) return;
-        // Spring to center
-        const cx = w / 2, cy = h / 2;
-        n.vx += (cx - n.x) * 0.0005;
-        n.vy += (cy - n.y) * 0.0005;
-        // Repulsion
-        graphNodes.forEach(m => {
-          if (m === n) return;
-          const dx = n.x - m.x, dy = n.y - m.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = 800 / (dist * dist);
-          n.vx += (dx / dist) * force;
-          n.vy += (dy / dist) * force;
-        });
-        // Spring along edges
-        graphEdges.forEach(edge => {
-          const other = edge.from === n.id ? graphNodes.find(x => x.id === edge.to)
-                      : edge.to === n.id ? graphNodes.find(x => x.id === edge.from) : null;
-          if (!other) return;
-          const dx = other.x - n.x, dy = other.y - n.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const targetDist = edge.type === 'artist' ? 80 : 120;
-          const force = (dist - targetDist) * 0.01;
-          n.vx += (dx / dist) * force;
-          n.vy += (dy / dist) * force;
-        });
-        // Damping
-        n.vx *= 0.85; n.vy *= 0.85;
-        n.x += n.vx; n.y += n.vy;
-        // Wall bounce
-        const margin = n.r + 8;
-        if (n.x < margin) { n.x = margin; n.vx = Math.abs(n.vx); }
-        if (n.x > w - margin) { n.x = w - margin; n.vx = -Math.abs(n.vx); }
-        if (n.y < margin) { n.y = margin; n.vy = Math.abs(n.vy); }
-        if (n.y > h - margin) { n.y = h - margin; n.vy = -Math.abs(n.vy); }
-      });
-    }
-    
-    // Draw
-    ctx.clearRect(0, 0, w, h);
-    ctx.save();
-    ctx.translate(graphTransform.x, graphTransform.y);
-    ctx.scale(graphTransform.scale, graphTransform.scale);
-    
-    // Grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.lineWidth = 1;
-    const gridSize = 24;
-    const ox = (-graphTransform.x / graphTransform.scale) % gridSize;
-    const oy = (-graphTransform.y / graphTransform.scale) % gridSize;
-    for (let x = ox; x < w / graphTransform.scale; x += gridSize) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h / graphTransform.scale); ctx.stroke();
-    }
-    for (let y = oy; y < h / graphTransform.scale; y += gridSize) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w / graphTransform.scale, y); ctx.stroke();
-    }
-    
-    const hoverId = graphHover?.id;
-    const connectedIds = hoverId ? new Set(
-      graphEdges.filter(e => e.from === hoverId || e.to === hoverId).flatMap(e => [e.from, e.to])
-    ) : null;
-    
-    // Edges
-    graphEdges.forEach(edge => {
-      const from = graphNodes.find(n => n.id === edge.from);
-      const to = graphNodes.find(n => n.id === edge.to);
-      if (!from || !to) return;
-      const isHighlighted = connectedIds && (connectedIds.has(edge.from) && connectedIds.has(edge.to));
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.strokeStyle = isHighlighted ? 'rgba(255,255,255,0.5)' : hoverId ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)';
-      ctx.lineWidth = edge.type === 'artist' ? 1 : 1.5;
-      ctx.setLineDash(edge.type === 'artist' ? [4, 4] : []);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    });
-    
-    // Nodes
-    graphNodes.forEach(node => {
-      const isDimmed = hoverId && !connectedIds?.has(node.id) && node.id !== hoverId;
-      const alpha = isDimmed ? 0.3 : 1;
-      ctx.globalAlpha = alpha;
-      
-      if (node.type === 'you') {
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.fillStyle = '#000';
-        ctx.font = `bold ${Math.max(9, node.r * 0.55)}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(node.label, node.x, node.y);
-      } else if (node.type === 'category') {
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.lineWidth = 1.5;
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = `500 ${Math.max(8, node.r * 0.6)}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(node.label.length > 10 ? node.label.slice(0, 9) + '…' : node.label, node.x, node.y);
-      } else {
-        const isActive = node.track && tracks[currentIndex]?.path === node.track.path;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-        ctx.fillStyle = isActive ? '#fff' : 'rgba(255,255,255,0.08)';
-        ctx.strokeStyle = isActive ? '#fff' : 'rgba(255,255,255,0.25)';
-        ctx.lineWidth = 1;
-        ctx.fill();
-        ctx.stroke();
-        if (node.r > 8) {
-          ctx.fillStyle = isActive ? '#000' : '#aaa';
-          ctx.font = `${Math.max(7, node.r * 0.7)}px Inter, sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          const lbl = node.label.length > 12 ? node.label.slice(0, 11) + '…' : node.label;
-          ctx.fillText(lbl, node.x, node.y + node.r + 10);
-        }
-      }
-      ctx.globalAlpha = 1;
-    });
-    
-    ctx.restore();
-    graphAnimFrame = requestAnimationFrame(loop);
-  }
-  loop();
 }
 
 // Запуск
