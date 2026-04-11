@@ -135,3 +135,49 @@ ipcMain.on('window-maximize', () => {
 });
 ipcMain.on('window-close', () => mainWindow.close());
 ipcMain.handle('window-is-maximized', () => mainWindow.isMaximized());
+
+// Чтение метаданных аудио (ID3)
+ipcMain.handle('get-audio-metadata', async (_, filePath) => {
+  try {
+    const data = await fs.readFile(filePath);
+    return parseID3(data);
+  } catch {
+    return null;
+  }
+});
+
+function parseID3(buffer) {
+  try {
+    if (buffer[0] !== 0x49 || buffer[1] !== 0x44 || buffer[2] !== 0x33) return null;
+    const size = ((buffer[6] & 0x7f) << 21) | ((buffer[7] & 0x7f) << 14) | ((buffer[8] & 0x7f) << 7) | (buffer[9] & 0x7f);
+    let offset = 10;
+    const result = {};
+    while (offset < size + 10 && offset + 10 < buffer.length) {
+      const frameId = buffer.slice(offset, offset + 4).toString('ascii');
+      if (!frameId.trim() || frameId[0] < 'A' || frameId[0] > 'Z') break;
+      const frameSize = buffer.readUInt32BE(offset + 4);
+      if (frameSize <= 0 || offset + 10 + frameSize > buffer.length) break;
+      offset += 10;
+      const frameData = buffer.slice(offset, offset + frameSize);
+      if (frameId === 'TIT2') result.title = frameData.slice(1).toString('utf8').replace(/\0/g, '').trim();
+      if (frameId === 'TPE1') result.artist = frameData.slice(1).toString('utf8').replace(/\0/g, '').trim();
+      if (frameId === 'TALB') result.album = frameData.slice(1).toString('utf8').replace(/\0/g, '').trim();
+      if (frameId === 'APIC') {
+        try {
+          let i = 1;
+          while (i < frameData.length && frameData[i] !== 0) i++;
+          i++; // skip mime null
+          i++; // skip picture type
+          while (i < frameData.length && frameData[i] !== 0) i++;
+          i++; // skip description null
+          const imgData = frameData.slice(i);
+          if (imgData.length > 0) {
+            result.cover = 'data:image/jpeg;base64,' + imgData.toString('base64');
+          }
+        } catch {}
+      }
+      offset += frameSize;
+    }
+    return Object.keys(result).length > 0 ? result : null;
+  } catch { return null; }
+}

@@ -17,4 +17,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Данные
   saveData: (data) => ipcRenderer.invoke('save-data', data),
   loadData: () => ipcRenderer.invoke('load-data'),
+  getAudioMetadata: (filePath) => ipcRenderer.invoke('get-audio-metadata', filePath),
 });

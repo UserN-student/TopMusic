@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        input, textarea { user-select: text; -webkit-user-select: text; }
         
         html, body {
             font-family: 'Inter', sans-serif;
@@ -25,13 +26,17 @@
         .playlist-grid, .playlist-grid *, .song-card, .toggle-switch,
         .add-track-btn, .track-card, .track-menu-btn, .context-menu,
         .sync-item, .playlist-checkbox, .sync-top-btn, .settings-top-btn,
-        .selection-bar, .selection-bar * {
+        .selection-bar, .selection-bar *, .selection-overlay,
+        .search-wrapper, .search-input, .clear-recent-btn, .settings-reset-btn {
             -webkit-app-region: no-drag !important;
         }
 
         .window-controls {
             position: absolute; top: 0; right: 0; display: flex;
             height: 40px; z-index: 10000;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            background: transparent !important;
         }
         .window-btn {
             width: 46px; height: 40px; display: flex; align-items: center;
@@ -53,12 +58,24 @@
             height: 100vh; position: relative; z-index: 100; padding-top: 40px;
             flex-shrink: 0;
         }
-        .sidebar-logo { padding: 24px 24px 28px; border-bottom: 1px solid #1a1a1a; }
+        .sidebar-logo { 
+            padding: 24px 24px 28px; 
+            border-bottom: 1px solid #1a1a1a;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .sidebar-logo svg {
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+        }
         .sidebar-logo h1 {
             font-size: 22px; font-weight: 700; letter-spacing: -0.5px;
             background: linear-gradient(135deg, #ffffff 0%, #888888 100%);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             background-clip: text;
+            margin: 0;
         }
         .sidebar-logo h1 span { -webkit-text-fill-color: #ffffff; }
         .sidebar-nav { padding: 16px 12px; flex: 1; overflow-y: auto; min-height: 0; }
@@ -108,7 +125,6 @@
             flex: 1; display: flex; flex-direction: column; height: 100vh;
             overflow: hidden; position: relative; padding-top: 40px;
             background: #0a0a0a; min-width: 0;
-            width: 1500px;
         }
 
         .top-bar {
@@ -121,6 +137,14 @@
         .top-bar-title {
             font-size: 24px; font-weight: 600; letter-spacing: -0.3px;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .top-bar-title svg {
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
         }
 
         .top-bar-actions {
@@ -172,16 +196,15 @@
         .settings-top-btn.hidden { display: none; }
 
         .graph-section {
-            flex: 1; min-height: 0; padding: 24px 32px; margin-bottom: 100px;
+            flex: 1; min-height: 0; padding: 16px 32px; padding-bottom: 100px;
             display: flex; flex-direction: column; min-width: 0; width: 100%;
-            overflow-x: hidden;
+            overflow: hidden;
         }
         .graph-section:not(.active) { display: none; }
         .graph-container {
-            flex: 1; min-height: 0; width: 100%;
+            flex: 1; min-height: 200px; width: 100%;
             background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
             border-radius: 20px; position: relative; overflow: hidden;
-            display: flex; align-items: center; justify-content: center;
         }
         .graph-grid {
             position: absolute; inset: 0;
@@ -197,7 +220,7 @@
         .graph-placeholder p { font-size: 14px; font-weight: 500; }
 
         .playlist-view {
-            flex: 1; min-height: 0; padding: 24px 32px; margin-bottom: 100px;
+            flex: 1; min-height: 0; padding: 24px 32px; padding-bottom: 120px;
             display: none; flex-direction: column; overflow-y: auto;
             min-width: 0; width: 100%;
         }
@@ -252,9 +275,11 @@
             background: rgba(255,255,255,0.1);
             border-color: rgba(255,255,255,0.2);
         }
+        /* === ВЫДЕЛЕНИЕ ТРЕКА — БЕЛЫЙ СТИЛЬ === */
         .track-card.selected {
-            background: rgba(255,255,255,0.12) !important;
-            border-color: rgba(255,255,255,0.25) !important;
+            background: rgba(255,255,255,0.1) !important;
+            border-color: rgba(255,255,255,0.35) !important;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset !important;
         }
         
         .track-card-art {
@@ -306,18 +331,11 @@
         .playlist-empty i { font-size: 32px; margin-bottom: 12px; display: block; opacity: 0.4; }
 
         .recent-section {
-            padding: 0 32px 16px 32px; margin-bottom: 100px;
+            padding: 0 32px 16px 32px;
             max-height: 280px; overflow: hidden;
             display: flex; flex-direction: column; flex-shrink: 0; min-width: 0; width: 100%;
         }
         .recent-section.hidden { display: none; }
-        .section-header {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 14px; flex-shrink: 0;
-        }
-        .section-header h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
-        .section-header .see-all { font-size: 13px; color: #666; cursor: pointer; transition: color 0.2s; }
-        .section-header .see-all:hover { color: #fff; }
         .recent-cards {
             display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px;
             flex-shrink: 0; min-height: 220px;
@@ -372,7 +390,7 @@
         }
 
         .settings-view {
-            flex: 1; min-height: 0; padding: 32px; margin-bottom: 100px;
+            flex: 1; min-height: 0; padding: 32px; padding-bottom: 120px;
             display: none; flex-direction: column; overflow-y: auto;
             min-width: 0; width: 100%;
         }
@@ -534,7 +552,7 @@
             width: calc(100% - 280px); height: 80px;
             background: #111; border-top: 1px solid #1a1a1a;
             display: flex; align-items: center; padding: 0 24px; gap: 20px;
-            z-index: 200; min-width: 0;
+            z-index: 200; min-width: 0; justify-content: space-between;
         }
         @media (max-width: 900px) {
             .player-bar { left: 0; width: 100%; }
@@ -585,7 +603,7 @@
         }
 
         .player-controls {
-            display: flex; align-items: center; gap: 20px; flex: 0 0 auto;
+            display: flex; align-items: center; gap: 20px; flex: 1; justify-content: center;
         }
         .ctrl-btn {
             background: none; border: none; color: #888; cursor: pointer;
@@ -650,11 +668,12 @@
         .modal-overlay.open { opacity: 1; visibility: visible; }
         .modal-box {
             background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 20px;
-            padding: 32px; width: 400px; max-width: 90vw;
+            padding: 32px; width: 400px; max-width: 90vw; max-height: 85vh;
             box-shadow: 0 24px 80px rgba(0,0,0,0.6);
             transform: translateY(20px) scale(0.96); transition: all 0.3s ease;
             display: flex;
             flex-direction: column;
+            overflow-y: auto;
         }
         .modal-overlay.open .modal-box { transform: translateY(0) scale(1); }
         .modal-header { 
@@ -864,14 +883,14 @@
             background: #dc2626;
         }
 
-        /* === ПАНЕЛЬ ВЫДЕЛЕНИЯ === */
+        /* === ПАНЕЛЬ ВЫДЕЛЕНИЯ — БЕЛЫЙ СТИЛЬ === */
         .selection-bar {
             display: none;
             align-items: center;
             gap: 12px;
             padding: 8px 16px;
-            background: rgba(239, 68, 68, 0.15);
-            border: 1px solid rgba(239, 68, 68, 0.3);
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.18);
             border-radius: 10px;
             margin-bottom: 12px;
             font-size: 13px;
@@ -881,7 +900,9 @@
             font-weight: 600;
         }
         .delete-selected-btn,
-        .cancel-selection-btn {
+        .cancel-selection-btn,
+        .select-all-btn,
+        .add-selected-to-playlist-btn {
             padding: 6px 14px;
             border: none;
             border-radius: 6px;
@@ -905,8 +926,355 @@
             background: rgba(255,255,255,0.2);
             color: #fff;
         }
+        .select-all-btn {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .select-all-btn:hover {
+            background: rgba(255,255,255,0.18);
+            color: #fff;
+        }
+        .add-selected-to-playlist-btn {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .add-selected-to-playlist-btn:hover {
+            background: rgba(255,255,255,0.18);
+            color: #fff;
+        }
         
         .svg-icon { width: 16px; height: 16px; fill: currentColor; }
+
+        /* === ТОСТ-УВЕДОМЛЕНИЯ === */
+        #toastContainer {
+            position: fixed;
+            bottom: 96px;
+            right: 24px;
+            z-index: 99999;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px;
+            background: #1e1e1e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: auto;
+            min-width: 180px;
+        }
+
+        /* === ПОИСК === */
+        .search-wrapper {
+            position: relative;
+            flex-shrink: 0;
+        }
+        .search-input {
+            width: 220px;
+            padding: 8px 14px 8px 36px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.2s;
+        }
+        .search-input:focus {
+            background: rgba(255,255,255,0.09);
+            border-color: rgba(255,255,255,0.2);
+            width: 260px;
+        }
+        .search-input::placeholder { color: #555; }
+        .search-icon {
+            position: absolute;
+            left: 11px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #555;
+            font-size: 13px;
+            pointer-events: none;
+        }
+
+        /* === УЛУЧШЕННОЕ ВЫДЕЛЕНИЕ ТРЕКА === */
+        .track-card.selected {
+            background: rgba(255,255,255,0.1) !important;
+            border-color: rgba(255,255,255,0.35) !important;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset !important;
+        }
+        .track-card.selected .track-card-title { color: #fff; }
+        .select-check {
+            width: 52px;
+            height: 52px;
+            background: rgba(255,255,255,0.12);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .select-check i { color: #fff; font-size: 20px; }
+        .track-liked-badge {
+            color: #fff;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .track-liked-badge i { font-size: 10px; }
+
+        /* === УЛУЧШЕННАЯ СЕКЦИЯ НЕДАВНИХ === */
+        .recent-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            flex-shrink: 0;
+        }
+        .recent-section-header h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
+        .recent-section-actions { display: flex; align-items: center; gap: 8px; }
+        .clear-recent-btn {
+            font-size: 12px;
+            color: #555;
+            cursor: pointer;
+            transition: color 0.2s;
+            background: none;
+            border: none;
+            font-family: 'Inter', sans-serif;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .clear-recent-btn:hover { color: #fff; background: rgba(255,255,255,0.06); }
+
+        /* === УЛУЧШЕННЫЕ НАСТРОЙКИ === */
+        .settings-section-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .settings-group h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .settings-reset-btn {
+            margin-top: 16px;
+            padding: 10px 16px;
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 10px;
+            color: #ef4444;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .settings-reset-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+        .shortcuts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .shortcut-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+        }
+        .shortcut-label { font-size: 12px; color: #888; }
+        .shortcut-key {
+            font-size: 11px;
+            color: #ccc;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 5px;
+            padding: 3px 8px;
+            font-family: monospace;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+        .stat-value { font-size: 22px; font-weight: 700; color: #fff; }
+        .stat-label { font-size: 11px; color: #666; margin-top: 4px; }
+
+        /* === ЗАГРУЗКА === */
+        .loading-spinner-wrap { display: flex; justify-content: center; margin-bottom: 20px; }
+        .loading-spinner {
+            width: 44px; height: 44px; border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #fff; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 16px; }
+        .loading-progress-bar-wrap {
+            width: 100%; height: 4px; background: rgba(255,255,255,0.1);
+            border-radius: 2px; overflow: hidden; margin-bottom: 10px;
+        }
+        .loading-progress-bar { height: 100%; background: #fff; border-radius: 2px; width: 0%; transition: width 0.2s ease; }
+        .loading-stats { font-size: 13px; color: #888; margin-bottom: 6px; }
+        .loading-current {
+            font-size: 11px; color: rgba(255,255,255,0.25);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; margin: 0 auto;
+        }
+
+        /* === РЕДАКТИРОВАНИЕ ТРЕКА === */
+        .edit-cover-section { display: flex; justify-content: center; margin-bottom: 20px; }
+        .edit-cover-preview {
+            width: 120px; height: 120px;
+            background: linear-gradient(135deg, #1e1e1e, #2a2a2a);
+            border-radius: 16px; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; position: relative; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1); transition: border-color 0.2s;
+        }
+        .edit-cover-preview:hover { border-color: rgba(255,255,255,0.3); }
+        .edit-cover-preview > i { font-size: 36px; color: #444; }
+        .edit-cover-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 16px; }
+        .edit-cover-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.6);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 6px; opacity: 0; transition: opacity 0.2s; border-radius: 16px;
+        }
+        .edit-cover-preview:hover .edit-cover-overlay { opacity: 1; }
+        .edit-cover-overlay i { font-size: 20px; color: #fff; }
+        .edit-cover-overlay span { font-size: 11px; color: #ccc; text-align: center; padding: 0 8px; }
+        .edit-field-group { margin-bottom: 16px; }
+        .edit-label { display: block; font-size: 12px; color: #666; margin-bottom: 8px; font-weight: 500; }
+        .edit-speed-row { display: flex; align-items: center; gap: 12px; }
+        .edit-range {
+            flex: 1; -webkit-appearance: none; height: 4px;
+            background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; cursor: pointer;
+        }
+        .edit-range::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 16px; height: 16px;
+            background: #fff; border-radius: 50%; cursor: pointer; transition: transform 0.15s;
+        }
+        .edit-range::-webkit-slider-thumb:hover { transform: scale(1.2); }
+        .edit-speed-val { font-size: 13px; color: #ccc; min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+        .eq-grid { display: flex; gap: 8px; align-items: flex-end; height: 100px; padding: 8px 0; overflow: visible; }
+        .eq-band { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .eq-band-label { font-size: 9px; color: #555; text-align: center; }
+        .eq-range {
+            -webkit-appearance: none; writing-mode: vertical-lr; direction: rtl;
+            width: 4px; height: 72px; background: rgba(255,255,255,0.1);
+            border-radius: 2px; outline: none; cursor: pointer;
+        }
+        .eq-range::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            background: #fff; border-radius: 50%; cursor: pointer;
+        }
+        .eq-val { font-size: 9px; color: #555; text-align: center; min-width: 28px; }
+
+        /* === КАРТОЧКА ТЕКУЩЕЙ ПЕСНИ === */
+        .now-playing-card {
+            margin: 0 0 16px; background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+            padding: 18px 24px; display: flex; align-items: center; gap: 20px;
+            flex-shrink: 0; transition: all 0.3s ease; position: relative; overflow: hidden;
+        }
+        .now-playing-card.has-track { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+        .now-playing-card-art {
+            width: 64px; height: 64px; background: linear-gradient(135deg, #1e1e1e, #2a2a2a);
+            border-radius: 12px; flex-shrink: 0; display: flex; align-items: center;
+            justify-content: center; overflow: hidden; position: relative;
+        }
+        .now-playing-card-art i { font-size: 24px; color: #333; }
+        .now-playing-card-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+        .now-playing-card-info { flex: 1; min-width: 0; }
+        .now-playing-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: #555; margin-bottom: 4px; }
+        .now-playing-title { font-size: 17px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
+        .now-playing-artist { font-size: 13px; color: #666; }
+        .now-playing-empty { font-size: 14px; color: #444; font-style: italic; }
+        .now-playing-eq { display: flex; align-items: flex-end; gap: 3px; height: 24px; }
+        .now-playing-eq span { width: 3px; background: #fff; border-radius: 2px; animation: eq-bounce 0.8s ease-in-out infinite alternate; }
+        .now-playing-eq span:nth-child(1) { animation-delay: 0s; }
+        .now-playing-eq span:nth-child(2) { animation-delay: 0.15s; }
+        .now-playing-eq span:nth-child(3) { animation-delay: 0.3s; }
+        .now-playing-eq span:nth-child(4) { animation-delay: 0.1s; }
+        @keyframes eq-bounce { from { height: 4px; } to { height: 20px; } }
+        .now-playing-card:not(.has-track) .now-playing-eq { display: none; }
+        .now-playing-eq.paused span { animation-play-state: paused; }
+
+        /* === NOW PLAYING OVERLAY & PROGRESS === */
+        .now-playing-art-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.55);
+            border-radius: 12px; display: flex; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.2s; cursor: pointer; z-index: 2;
+        }
+        .now-playing-card-art:hover .now-playing-art-overlay { opacity: 1; }
+        .now-playing-art-overlay i { color: #fff; font-size: 22px; }
+        .now-playing-progress-wrap { margin-top: 8px; }
+        .now-playing-progress-bg {
+            width: 100%; height: 3px; background: rgba(255,255,255,0.1);
+            border-radius: 2px; overflow: hidden; margin-bottom: 4px;
+        }
+        .now-playing-progress-fill {
+            height: 100%; background: #fff; border-radius: 2px; width: 0%;
+            transition: width 0.1s linear;
+        }
+        .now-playing-time { font-size: 11px; color: #555; font-variant-numeric: tabular-nums; }
+        .now-playing-date { font-size: 11px; color: #555; margin-top: 4px; }
+
+        /* === КАСТОМНЫЕ ЧЕКБОКСЫ === */
+        .category-toggle input[type="checkbox"] { display: none; }
+        .category-toggle .cb-box {
+            width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 5px; display: inline-flex; align-items: center;
+            justify-content: center; flex-shrink: 0; transition: all 0.15s;
+        }
+        .category-toggle input:checked ~ .cb-box { background: #fff; border-color: #fff; }
+        .category-toggle input:checked ~ .cb-box::after {
+            content: ''; display: block; width: 5px; height: 9px;
+            border: 2px solid #000; border-top: none; border-left: none;
+            transform: rotate(45deg) translate(-1px, -1px);
+        }
+
+        /* === АНИМАЦИИ === */
+        @keyframes slideInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .track-card { /* animation removed to prevent flicker on re-render */ }
+        body.no-animations .track-card { animation: none; }
+        body.no-animations * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 
         /* === КОНТЕКСТНОЕ МЕНЮ === */
         .context-menu {
@@ -940,32 +1308,6 @@
         .context-item.danger { color: #ff6b6b; }
         .context-item.danger:hover { background: rgba(239, 68, 68, 0.1); }
         .context-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
-        /* === ФИКС: Название трека + кнопка копирования === */
-        .track-details-row.name-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-        .track-details-row.name-row .track-details-label {
-        flex-shrink: 0;
-        width: 80px;
-        }
-        .track-details-row.name-row .track-details-value {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        text-align: right;
-        max-width: calc(100% - 120px); /*=label(80px)+gap(8px)+btn(36px)*/
-        }
-        .track-details-row.name-row .copy-name-btn {
-        flex-shrink: 0;
-        margin: 0;
-        align-self: center;
-        }
     </style>
 </head>
 <body>
@@ -976,7 +1318,17 @@
     </div>
 
     <aside class="sidebar">
-        <div class="sidebar-logo"><h1><span>Top</span>Music</h1></div>
+        <div class="sidebar-logo">
+            <!-- ЛОГОТИП: вставь свой SVG код сюда -->
+            <svg viewBox="0 0 422 372" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="422" height="372" rx="54" fill="#E8E8E8"/>
+                <path d="M387 317C387 330.255 376.255 341 363 341H190C104.396 341 35 271.604 35 186C35 100.396 104.396 31 190 31H363C376.255 31 387 41.7452 387 55V317Z" fill="#111111"/>
+                <path d="M183 106.325C183 90.1596 200.5 80.0559 214.5 88.1386L352.5 167.813C366.5 175.896 366.5 196.104 352.5 204.186L214.5 283.86C200.5 291.943 183 281.84 183 265.674V228.987C182.668 228.995 182.334 229 182 229C158.252 229 139 209.748 139 186C139 162.252 158.252 143 182 143C182.334 143 182.668 143.004 183 143.012V106.325Z" fill="#E8E8E8"/>
+                <path d="M182.5 66.864C182.5 60.864 177.628 55.9527 171.649 56.4554C158.361 57.5728 145.303 60.7379 132.942 65.8576C117.231 72.3656 102.955 81.9045 90.9297 93.9297C78.9045 105.955 69.3656 120.231 62.8576 135.942C56.3496 151.654 53 168.494 53 185.5C53 202.506 56.3496 219.346 62.8576 235.058C69.3656 250.769 78.9045 265.045 90.9297 277.07C102.955 289.096 117.231 298.634 132.943 305.142C145.303 310.262 158.361 313.427 171.649 314.545C177.628 315.047 182.5 310.136 182.5 304.136V304.136C182.5 298.136 177.624 293.329 171.654 292.725C161.222 291.67 150.98 289.096 141.257 285.068C128.182 279.652 116.301 271.714 106.294 261.706C96.2861 251.699 88.3477 239.818 82.9316 226.743C77.5156 213.667 74.728 199.653 74.728 185.5C74.728 171.347 77.5156 157.333 82.9316 144.257C88.3477 131.182 96.2861 119.301 106.294 109.294C116.301 99.2861 128.182 91.3477 141.257 85.9316C150.98 81.9043 161.222 79.3303 171.654 78.2751C177.624 77.6713 182.5 72.864 182.5 66.864V66.864Z" fill="#E8E8E8"/>
+                <path d="M168.406 107.775C166.834 101.908 160.769 98.3656 155.129 100.623C139.768 106.771 126.269 116.956 116.115 130.19C103.719 146.344 97 166.138 97 186.5C97 206.862 103.719 226.656 116.115 242.81C126.269 256.044 139.768 266.229 155.129 272.377C160.769 274.634 166.834 271.092 168.406 265.225V265.225C169.978 259.357 166.445 253.403 160.893 250.939C150.183 246.184 140.77 238.808 133.566 229.42C124.118 217.107 118.997 202.02 118.997 186.5C118.997 170.98 124.118 155.893 133.566 143.58C140.77 134.192 150.183 126.816 160.893 122.061C166.445 119.597 169.978 113.643 168.406 107.775V107.775Z" fill="#E8E8E8"/>
+            </svg>
+            <h1><span>Top</span>Music</h1>
+        </div>
         <nav class="sidebar-nav">
             <div class="nav-item active" data-page="home" onclick="switchPage(this)">
                 <i class="fa-solid fa-house"></i><span>Главная</span>
@@ -990,6 +1342,9 @@
                 <div class="nav-item" data-page="all-songs" onclick="switchPage(this)">
                     <i class="fa-solid fa-music"></i><span>Все треки</span>
                 </div>
+                <div class="nav-item" data-page="liked" onclick="switchPage(this)">
+                    <i class="fa-solid fa-heart"></i><span>Понравившееся</span>
+                </div>
             </div>
         </nav>
         <button class="add-btn" id="addCategoryBtn">
@@ -999,7 +1354,15 @@
 
     <main class="main-content">
         <div class="top-bar">
-            <h2 class="top-bar-title" id="pageTitle">Главная</h2>
+            <h2 class="top-bar-title" id="pageTitle">
+                <!-- Логотип в заголовке (опционально) -->
+                <svg viewBox="0 0 422 372" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px">
+                    <rect width="422" height="372" rx="54" fill="#E8E8E8"/>
+                    <path d="M387 317C387 330.255 376.255 341 363 341H190C104.396 341 35 271.604 35 186C35 100.396 104.396 31 190 31H363C376.255 31 387 41.7452 387 55V317Z" fill="#111111"/>
+                    <path d="M183 106.325C183 90.1596 200.5 80.0559 214.5 88.1386L352.5 167.813C366.5 175.896 366.5 196.104 352.5 204.186L214.5 283.86C200.5 291.943 183 281.84 183 265.674V228.987C182.668 228.995 182.334 229 182 229C158.252 229 139 209.748 139 186C139 162.252 158.252 143 182 143C182.334 143 182.668 143.004 183 143.012V106.325Z" fill="#E8E8E8"/>
+                </svg>
+                Главная
+            </h2>
             <div class="top-bar-actions">
                 <!-- Кнопка "Настройки" (показывается только в категориях) -->
                 <button class="settings-top-btn hidden" id="settingsTopBtn" title="Открыть настройки">
@@ -1007,6 +1370,12 @@
                     Настройки
                 </button>
                 
+                <!-- Поиск (показывается только в категориях) -->
+                <div class="search-wrapper sort-container hidden" id="searchContainer">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Поиск треков...">
+                </div>
+
                 <div class="sort-container hidden" id="sortContainer">
                     <button class="sort-btn" id="sortBtn">
                         <i class="fa-solid fa-arrow-down-wide-short"></i><span>Сортировка</span>
@@ -1033,12 +1402,34 @@
         </div>
 
         <div class="graph-section active" id="graphSection">
-            <div class="graph-container">
-                <div class="graph-grid"></div>
-                <div class="graph-placeholder">
-                    <i class="fa-solid fa-diagram-project"></i>
-                    <p>Граф активности</p>
+            <!-- Карточка текущей песни -->
+            <div class="now-playing-card" id="nowPlayingCard">
+                <div class="now-playing-card-art" id="nowPlayingArt">
+                    <i class="fa-solid fa-music"></i>
+                    <div class="now-playing-art-overlay" onclick="togglePlay()">
+                        <i class="fa-solid fa-pause" id="nowPlayingPlayIcon"></i>
+                    </div>
                 </div>
+                <div class="now-playing-card-info">
+                    <div class="now-playing-label">Сейчас играет</div>
+                    <div class="now-playing-title" id="nowPlayingTitle">
+                        <span class="now-playing-empty">Ничего не воспроизводится</span>
+                    </div>
+                    <div class="now-playing-artist" id="nowPlayingArtist"></div>
+                    <div class="now-playing-progress-wrap" id="nowPlayingProgressWrap" style="display:none">
+                        <div class="now-playing-progress-bg">
+                            <div class="now-playing-progress-fill" id="nowPlayingProgressFill"></div>
+                        </div>
+                        <div class="now-playing-time" id="nowPlayingTime">0:00 / 0:00</div>
+                    </div>
+                    <div class="now-playing-date" id="nowPlayingDate" style="display:none"></div>
+                </div>
+                <div class="now-playing-eq" id="nowPlayingEq">
+                    <span></span><span></span><span></span><span></span>
+                </div>
+            </div>
+            <div class="graph-container" style="flex:1;min-height:200px">
+                <canvas id="graphCanvas" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>
             </div>
         </div>
 
@@ -1060,18 +1451,44 @@
 
         <div class="settings-view" id="settingsView">
             <div class="settings-group">
-                <h3>Аудио</h3>
-                <div class="setting-row">
-                    <div><div class="setting-label">Автовоспроизведение</div><div class="setting-desc">Начинать при запуске</div></div>
-                    <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
-                </div>
-                <div class="setting-row">
-                    <div><div class="setting-label">Эквалайзер</div><div class="setting-desc">Настройка частот</div></div>
-                    <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
+                <h3><span class="settings-section-icon"><i class="fa-solid fa-chart-bar"></i></span> Статистика</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTotalTracks">0</div>
+                        <div class="stat-label">Треков</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTotalTime">0:00</div>
+                        <div class="stat-label">Общее время</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statLiked">0</div>
+                        <div class="stat-label">В избранном</div>
+                    </div>
                 </div>
             </div>
 
-            <!-- === СИНХРОНИЗАЦИЯ ПЕРЕНЕСЕНА СЮДА === -->
+            <div class="settings-group">
+                <h3><span class="settings-section-icon"><i class="fa-solid fa-sliders"></i></span> Аудио</h3>
+                <div class="setting-row">
+                    <div><div class="setting-label">Автовоспроизведение</div><div class="setting-desc">Начинать при запуске</div></div>
+                    <div class="toggle-switch" id="autoplayToggle" onclick="this.classList.toggle('on'); saveSettingToggle('autoplay', this.classList.contains('on'))"></div>
+                </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Продолжать с последнего трека</div><div class="setting-desc">Запоминать позицию воспроизведения</div></div>
+                    <div class="toggle-switch" id="resumeToggle" onclick="this.classList.toggle('on'); saveSettingToggle('resume', this.classList.contains('on'))"></div>
+                </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Анимации интерфейса</div><div class="setting-desc">Плавные переходы и эффекты</div></div>
+                    <div class="toggle-switch on" id="animationsToggle" onclick="this.classList.toggle('on'); saveSettingToggle('animations', this.classList.contains('on'))"></div>
+                </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Граф активности</div><div class="setting-desc">Показывать граф на главной</div></div>
+                    <div class="toggle-switch on" id="graphToggle" onclick="this.classList.toggle('on'); saveSettingToggle('graph', this.classList.contains('on'))"></div>
+                </div>
+            </div>
+
+            <!-- === СИНХРОНИЗАЦИЯ === -->
             <div class="settings-group sync-section">
                 <h4><i class="fa-solid fa-rotate"></i> Синхронизация папок</h4>
                 <p>Автоматическое отслеживание изменений в выбранных директориях. Новые файлы добавятся в указанные категории.</p>
@@ -1086,20 +1503,37 @@
             </div>
 
             <div class="settings-group">
-                <h3>О приложении</h3>
+                <h3><span class="settings-section-icon"><i class="fa-solid fa-keyboard"></i></span> Горячие клавиши</h3>
+                <div class="shortcuts-grid">
+                    <div class="shortcut-item"><span class="shortcut-label">Пауза / Воспроизведение</span><span class="shortcut-key">Space</span></div>
+                    <div class="shortcut-item"><span class="shortcut-label">Перемотка вперёд</span><span class="shortcut-key">→</span></div>
+                    <div class="shortcut-item"><span class="shortcut-label">Перемотка назад</span><span class="shortcut-key">←</span></div>
+                    <div class="shortcut-item"><span class="shortcut-label">Снять выделение</span><span class="shortcut-key">Esc</span></div>
+                    <div class="shortcut-item"><span class="shortcut-label">Выделить трек</span><span class="shortcut-key">Ctrl+Click</span></div>
+                    <div class="shortcut-item"><span class="shortcut-label">Добавить файлы</span><span class="shortcut-key">Drag & Drop</span></div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3><span class="settings-section-icon"><i class="fa-solid fa-circle-info"></i></span> О приложении</h3>
                 <div class="about-info">
                     <p>Разработано для <strong>Конкурса в колледже IT TOP</strong> в образовательных целях.</p>
                 </div>
                 <div class="setting-row" style="margin-top:12px;border:none">
                     <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.1.2</span></div></div>
                 </div>
+                <button class="settings-reset-btn" id="resetLibraryBtn">
+                    <i class="fa-solid fa-trash-can"></i> Очистить библиотеку
+                </button>
             </div>
         </div>
 
         <div class="recent-section" id="recentSection">
-            <div class="section-header">
+            <div class="recent-section-header">
                 <h2>Недавно прослушанные</h2>
-                <span class="see-all">Все</span>
+                <div class="recent-section-actions">
+                    <button class="clear-recent-btn" id="clearRecentBtn">Очистить</button>
+                </div>
             </div>
             <div class="recent-cards empty" id="recentCards">
                 <div class="empty-message">
@@ -1145,6 +1579,9 @@
         <div class="context-item" data-action="details">
             <i class="fa-solid fa-circle-info"></i><span>Подробнее</span>
         </div>
+        <div class="context-item" data-action="edit">
+            <i class="fa-solid fa-pen"></i><span>Изменить</span>
+        </div>
         <div class="context-item" data-action="playlist">
             <i class="fa-solid fa-list"></i><span>Добавить в плейлист</span>
         </div>
@@ -1185,6 +1622,10 @@
             </div>
             <div class="modal-body">
                 <div id="trackDetailsContent"></div>
+                <!-- Кнопка копирования названия -->
+                <button class="copy-name-btn" id="copyTrackNameBtn" title="Копировать название">
+                    <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                </button>
             </div>
             <div class="modal-actions">
                 <button class="modal-btn modal-btn-cancel" data-modal="detailsModal">Закрыть</button>
@@ -1244,6 +1685,75 @@
                     Копировать путь
                 </button>
                 <button class="missing-file-btn missing-file-btn-ok" id="okMissingFileBtn">Понятно...</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Контейнер для тост-уведомлений -->
+    <div id="toastContainer"></div>
+
+    <!-- === МОДАЛЬНОЕ ОКНО ЗАГРУЗКИ === -->
+    <div class="modal-overlay" id="loadingModal" style="z-index:20000">
+        <div class="modal-box" style="width:360px;text-align:center;padding:32px 28px">
+            <div class="loading-spinner-wrap">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="loading-title">Загрузка файлов...</div>
+            <div class="loading-progress-bar-wrap">
+                <div class="loading-progress-bar" id="loadingProgressBar"></div>
+            </div>
+            <div class="loading-stats" id="loadingStats">0 / 0</div>
+            <div class="loading-current" id="loadingCurrent">Подготовка...</div>
+        </div>
+    </div>
+
+    <!-- === МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ТРЕКА === -->
+    <div class="modal-overlay" id="editTrackModal">
+        <div class="modal-box" style="width:520px;max-height:80vh;overflow-y:auto">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-pen" style="font-size:16px;margin-right:6px"></i>Редактировать трек</h3>
+                <button class="modal-close" data-modal="editTrackModal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" style="margin:0">
+                <!-- Обложка -->
+                <div class="edit-cover-section">
+                    <div class="edit-cover-preview" id="editCoverPreview">
+                        <i class="fa-solid fa-music"></i>
+                        <div class="edit-cover-overlay">
+                            <i class="fa-solid fa-camera"></i>
+                            <span>Загрузить GIF/изображение</span>
+                        </div>
+                    </div>
+                    <input type="file" id="editCoverInput" accept="image/*,.gif" style="display:none">
+                </div>
+                <!-- Поля -->
+                <div class="edit-field-group">
+                    <label class="edit-label">Название</label>
+                    <input type="text" class="modal-input" id="editTrackName" placeholder="Название трека...">
+                </div>
+                <div class="edit-field-group">
+                    <label class="edit-label">Исполнитель</label>
+                    <input type="text" class="modal-input" id="editTrackArtist" placeholder="Исполнитель...">
+                </div>
+                <div class="edit-field-group">
+                    <label class="edit-label">Скорость воспроизведения</label>
+                    <div class="edit-speed-row">
+                        <input type="range" id="editSpeedSlider" min="0.25" max="3" step="0.05" value="1" class="edit-range">
+                        <span class="edit-speed-val" id="editSpeedVal">1.00×</span>
+                    </div>
+                </div>
+                <!-- Эквалайзер 10 полос -->
+                <div class="edit-field-group">
+                    <label class="edit-label">Эквалайзер</label>
+                    <div class="eq-grid" id="eqGrid"></div>
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top:20px;flex-wrap:wrap;gap:8px">
+                <button class="modal-btn" id="editResetBtn" style="background:rgba(255,255,255,0.06);color:#888;flex:0 0 auto">
+                    <i class="fa-solid fa-rotate-left"></i> Сбросить
+                </button>
+                <button class="modal-btn modal-btn-cancel" data-modal="editTrackModal" style="flex:1">Закрыть</button>
+                <button class="modal-btn modal-btn-create" id="editSaveBtn" style="flex:1">Сохранить</button>
             </div>
         </div>
     </div>
