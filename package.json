@@ -66,6 +66,7 @@
     "has-property-descriptors": "^1.0.2",
     "http-cache-semantics": "^4.2.0",
     "http2-wrapper": "^1.0.3",
+    "jsmediatags": "^3.9.7",
     "json-buffer": "^3.0.1",
     "json-stringify-safe": "^5.0.1",
     "jsonfile": "^4.0.0",

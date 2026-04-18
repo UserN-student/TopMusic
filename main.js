@@ -1,7 +1,19 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const appConfig = require('./config');
+const jsmediatags = require('jsmediatags');
+
+// ===== DEBUG FLAG =====
+// Установи DEBUG = true для вывода отладочной информации в консоль
+const DEBUG = false;
+function dbg(...args) { if (DEBUG) console.log('[TopMusic DEBUG]', ...args); }
+
+// Регистрируем схему до ready
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'localfile', privileges: { secure: true, standard: true, stream: true, bypassCSP: true } }
+]);
 
 let mainWindow;
 const DATA_PATH = path.join(app.getPath('userData'), 'topmusic-data.json');
@@ -19,7 +31,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
+      webSecurity: true,
     },
   });
 
@@ -30,7 +43,62 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // Кастомный протокол для стриминга локальных аудиофайлов
+  protocol.handle('localfile', async (request) => {
+    try {
+      // localfile:///R:/music/song.mp3
+      let urlPath = request.url.slice('localfile:///'.length);
+      // Decode percent-encoding
+      urlPath = decodeURIComponent(urlPath);
+      // Normalize to OS path
+      const filePath = urlPath.replace(/\//g, path.sep);
+
+      const stat = await fs.stat(filePath);
+      const fileSize = stat.size;
+
+      // Handle Range requests (needed for audio seeking)
+      const rangeHeader = request.headers.get('range');
+      if (rangeHeader) {
+        const [, startStr, endStr] = rangeHeader.match(/bytes=(\d+)-(\d*)/) || [];
+        const start = parseInt(startStr, 10);
+        const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+
+        const stream = fsSync.createReadStream(filePath, { start, end });
+        const ext = path.extname(filePath).toLowerCase().slice(1);
+        const mime = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', wma: 'audio/x-ms-wma' }[ext] || 'audio/mpeg';
+
+        return new Response(stream, {
+          status: 206,
+          headers: {
+            'Content-Type': mime,
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunkSize),
+          }
+        });
+      }
+
+      // Full file
+      const stream = fsSync.createReadStream(filePath);
+      const ext = path.extname(filePath).toLowerCase().slice(1);
+      const mime = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', wma: 'audio/x-ms-wma' }[ext] || 'audio/mpeg';
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          'Content-Type': mime,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(fileSize),
+        }
+      });
+    } catch (e) {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -100,9 +168,13 @@ ipcMain.handle('open-folder-with-file', async (_, filePath) => {
 // Сохранить данные
 ipcMain.handle('save-data', async (_, data) => {
   try {
-    const serializable = JSON.parse(JSON.stringify(data, (key, value) =>
-      value instanceof Set ? Array.from(value) : value
-    ));
+    const serializable = JSON.parse(JSON.stringify(data, (key, value) => {
+      // Не сохраняем служебные поля с подчёркиванием
+      if (key.startsWith('_')) return undefined;
+      // Не сохраняем битые обложки (без data: префикса)
+      if (key === 'cover' && value && !value.startsWith('data:')) return undefined;
+      return value instanceof Set ? Array.from(value) : value;
+    }));
     await fs.writeFile(DATA_PATH, JSON.stringify(serializable, null, 2));
     return true;
   } catch (e) {
@@ -127,7 +199,86 @@ ipcMain.handle('load-data', async () => {
   }
 });
 
-// Управление окном
+// Получить длительность аудиофайла (парсинг заголовков без чтения всего файла)
+ipcMain.handle('get-audio-duration', async (_, filePath) => {
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    const fd = await fs.open(filePath, 'r');
+    try {
+      if (ext === '.mp3') {
+        // Читаем первые 10 байт для ID3 заголовка
+        const buf10 = Buffer.alloc(10);
+        await fd.read(buf10, 0, 10, 0);
+
+        let audioStart = 0;
+        if (buf10[0] === 0x49 && buf10[1] === 0x44 && buf10[2] === 0x33) {
+          const id3Size = ((buf10[6] & 0x7f) << 21) | ((buf10[7] & 0x7f) << 14) |
+                          ((buf10[8] & 0x7f) << 7) | (buf10[9] & 0x7f);
+          audioStart = id3Size + 10;
+        }
+
+        // Читаем первый MP3 фрейм
+        const frameBuf = Buffer.alloc(4);
+        await fd.read(frameBuf, 0, 4, audioStart);
+
+        // Проверяем sync побайтово (избегаем знаковых проблем JS)
+        const b0 = frameBuf[0], b1 = frameBuf[1];
+        if (b0 === 0xFF && (b1 & 0xE0) === 0xE0) {
+          const header = (b0 << 24) | (b1 << 16) | (frameBuf[2] << 8) | frameBuf[3];
+          const bitrateIdx    = (header >> 12) & 0xF;
+          const sampleRateIdx = (header >> 10) & 0x3;
+          const bitrates   = [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0];
+          const sampleRates = [44100,48000,32000,0];
+          const bitrate    = bitrates[bitrateIdx] * 1000;
+          const sampleRate = sampleRates[sampleRateIdx];
+          if (bitrate > 0 && sampleRate > 0) {
+            const stat = await fs.stat(filePath);
+            return (stat.size - audioStart) * 8 / bitrate;
+          }
+        }
+
+      } else if (ext === '.wav') {
+        const wavBuf = Buffer.alloc(44);
+        await fd.read(wavBuf, 0, 44, 0);
+        if (wavBuf.slice(0, 4).toString('ascii') === 'RIFF') {
+          const byteRate = wavBuf.readUInt32LE(28);
+          const dataSize = wavBuf.readUInt32LE(40);
+          if (byteRate > 0) return dataSize / byteRate;
+        }
+
+      } else if (ext === '.flac') {
+        const flacBuf = Buffer.alloc(42);
+        await fd.read(flacBuf, 0, 42, 0);
+        if (flacBuf.slice(0, 4).toString('ascii') === 'fLaC') {
+          const sampleRate = ((flacBuf[18] << 12) | (flacBuf[19] << 4) | (flacBuf[20] >> 4)) >>> 0;
+          const samplesHigh = (flacBuf[21] & 0x0F);
+          const samplesLow  = flacBuf.readUInt32BE(22);
+          const totalSamples = samplesHigh * 0x100000000 + samplesLow;
+          if (sampleRate > 0) return totalSamples / sampleRate;
+        }
+      }
+      return null;
+    } finally {
+      await fd.close();
+    }
+  } catch {
+    return null;
+  }
+});
+
+// Получить безопасный URL для локального файла
+ipcMain.handle('get-file-url', async (_, filePath) => {
+  try {
+    await fs.access(filePath);
+    // Encode each path segment but keep drive letter and separators
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    const encoded = parts.map((p, i) => i === 0 ? p : encodeURIComponent(p)).join('/');
+    return 'localfile:///' + encoded;
+  } catch {
+    return null;
+  }
+});
+
 ipcMain.on('window-minimize', () => mainWindow.minimize());
 ipcMain.on('window-maximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
@@ -136,52 +287,37 @@ ipcMain.on('window-maximize', () => {
 ipcMain.on('window-close', () => mainWindow.close());
 ipcMain.handle('window-is-maximized', () => mainWindow.isMaximized());
 
-// Чтение метаданных аудио (ID3)
+// ===== ЧТЕНИЕ МЕТАДАННЫХ ЧЕРЕЗ JSMEDIATAGS =====
 ipcMain.handle('get-audio-metadata', async (_, filePath) => {
-  try {
-    const data = await fs.readFile(filePath);
-    return parseID3(data);
-  } catch {
-    return null;
-  }
-});
+  return new Promise((resolve) => {
+    dbg('Reading metadata:', filePath);
+    jsmediatags.read(filePath, {
+      onSuccess: (tag) => {
+        const result = {
+          title: tag.tags.title || null,
+          artist: tag.tags.artist || null,
+          album: tag.tags.album || null,
+          year: tag.tags.year || null,
+          genre: tag.tags.genre || null,
+          track: tag.tags.track || null,
+        };
 
-function parseID3(buffer) {
-  try {
-    if (buffer[0] !== 0x49 || buffer[1] !== 0x44 || buffer[2] !== 0x33) return null;
-    const size = ((buffer[6] & 0x7f) << 21) | ((buffer[7] & 0x7f) << 14) | ((buffer[8] & 0x7f) << 7) | (buffer[9] & 0x7f);
-    let offset = 10;
-    const result = {};
-    while (offset < size + 10 && offset + 10 < buffer.length) {
-      const frameId = buffer.slice(offset, offset + 4).toString('ascii');
-      if (!frameId.trim() || frameId[0] < 'A' || frameId[0] > 'Z') break;
-      const frameSize = buffer.readUInt32BE(offset + 4);
-      if (frameSize <= 0 || offset + 10 + frameSize > buffer.length) break;
-      offset += 10;
-      const frameData = buffer.slice(offset, offset + frameSize);
-      if (frameId === 'TIT2') result.title = frameData.slice(1).toString('utf8').replace(/\0/g, '').trim();
-      if (frameId === 'TPE1') result.artist = frameData.slice(1).toString('utf8').replace(/\0/g, '').trim();
-      if (frameId === 'TALB') result.album = frameData.slice(1).toString('utf8').replace(/\0/g, '').trim();
-      if (frameId === 'APIC') {
-        try {
-          let i = 1;
-          // Read MIME type
-          let mimeEnd = i;
-          while (mimeEnd < frameData.length && frameData[mimeEnd] !== 0) mimeEnd++;
-          const mimeType = frameData.slice(i, mimeEnd).toString('ascii').toLowerCase() || 'image/jpeg';
-          i = mimeEnd + 1; // skip mime null
-          i++; // skip picture type
-          while (i < frameData.length && frameData[i] !== 0) i++;
-          i++; // skip description null
-          const imgData = frameData.slice(i);
-          if (imgData.length > 0) {
-            const mime = mimeType.includes('png') ? 'image/png' : mimeType.includes('gif') ? 'image/gif' : 'image/jpeg';
-            result.cover = `data:${mime};base64,` + imgData.toString('base64');
-          }
-        } catch {}
+        if (tag.tags.picture) {
+          const { data, format } = tag.tags.picture;
+          const base64 = Buffer.from(data).toString('base64');
+          result.cover = `data:${format};base64,${base64}`;
+          dbg('Cover found:', format, data.length, 'bytes for', filePath.split(/[/\\]/).pop());
+        } else {
+          dbg('No cover for:', filePath.split(/[/\\]/).pop());
+        }
+
+        dbg('Metadata result:', { title: result.title, artist: result.artist, hasCover: !!result.cover });
+        resolve(result);
+      },
+      onError: (error) => {
+        dbg('jsmediatags error:', error.type, error.info, 'for', filePath);
+        resolve(null);
       }
-      offset += frameSize;
-    }
-    return Object.keys(result).length > 0 ? result : null;
-  } catch { return null; }
-}
+    });
+  });
+});
