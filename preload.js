@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkFileExists: (filePath) => ipcRenderer.invoke('check-file-exists', filePath),
   openFolderWithFile: (filePath) => ipcRenderer.invoke('open-folder-with-file', filePath),
   openAppDataFolder: () => ipcRenderer.invoke('open-app-data-folder'),
+  getLoadingPhrases: () => ipcRenderer.invoke('get-loading-phrases'),
   getFileUrl: (filePath) => ipcRenderer.invoke('get-file-url', filePath),
   
   // Данные

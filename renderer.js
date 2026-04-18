@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // 🎵 TopMusic - Renderer Process Logic v2
 // ==========================================
 const audio = document.getElementById('audio');
@@ -234,6 +234,7 @@ function setupEventListeners() {
   if (searchInput) {
     searchInput.addEventListener('input', () => {
       searchQuery = searchInput.value.trim().toLowerCase();
+      _currentPage = 0;
       renderPlaylist();
     });
     searchInput.addEventListener('keydown', (e) => {
@@ -403,15 +404,18 @@ async function handleDrop(e) {
   });
   if (!files.length) return;
   
-  showLoadingModal(files.length);
+  const total = files.length;
+  await showLoadingModal(total);
   let added = 0;
+  const newTracks = [];
+
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    updateLoadingModal(i + 1, files.length, file.name);
+    updateLoadingModal(i + 1, total, file.name);
     const filePath = file.path;
     if (!tracks.some(t => t.path === filePath)) {
       const fileName = file.name;
-      tracks.push({
+      const track = {
         path: filePath,
         name: fileName.replace(/\.[^.]+$/, ''),
         ext: fileName.split('.').pop().toUpperCase(),
@@ -419,16 +423,19 @@ async function handleDrop(e) {
         dateAdded: Date.now(),
         liked: false,
         categories: ['all-songs']
-      });
+      };
+      tracks.push(track);
+      newTracks.push(track);
       added++;
     }
     await new Promise(r => setTimeout(r, 0));
   }
-  
-  hideLoadingModal();
-  renderAll();
-  loadTrackDurations();
-  loadAllMetadata();
+
+  if (newTracks.length) {
+    await loadMetadataInModal(newTracks, total);
+  }
+
+  await hideLoadingModal();
   if (currentIndex === -1 && tracks.length > 0) loadTrack(0);
   saveData();
   if (added > 0) showToast(`Добавлено ${added} трек(ов)`);
@@ -572,14 +579,17 @@ async function addFiles() {
   const files = await window.electronAPI.openFiles();
   if (!files.length) return;
   
-  showLoadingModal(files.length);
+  const total = files.length;
+  await showLoadingModal(total);
   let added = 0;
+  const newTracks = [];
+
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const fileName = file.split(/[\/\\]/).pop();
-    updateLoadingModal(i + 1, files.length, fileName);
+    updateLoadingModal(i + 1, total, fileName);
     if (!tracks.some(t => t.path === file)) {
-      tracks.push({
+      const track = {
         path: file,
         name: fileName.replace(/\.[^.]+$/, ''),
         ext: fileName.split('.').pop().toUpperCase(),
@@ -587,18 +597,20 @@ async function addFiles() {
         dateAdded: Date.now(),
         liked: false,
         categories: ['all-songs']
-      });
+      };
+      tracks.push(track);
+      newTracks.push(track);
       added++;
     }
     await new Promise(r => setTimeout(r, 0));
   }
-  
-  hideLoadingModal();
-  renderAll();
-  loadTrackDurations();
-  // Load metadata for new tracks
-  const newTracks = tracks.slice(tracks.length - added);
-  loadAllMetadata();
+
+  // Грузим метаданные и длительности прямо в модальном окне
+  if (newTracks.length) {
+    await loadMetadataInModal(newTracks, total);
+  }
+
+  await hideLoadingModal();
   if (currentIndex === -1 && tracks.length > 0) loadTrack(0);
   saveData();
   if (added > 0) showToast(`Добавлено ${added} трек(ов)`);
@@ -612,14 +624,17 @@ async function addFolder() {
   const files = await window.electronAPI?.getAudioFilesInFolder?.(folder);
   if (!files?.length) return;
   
-  showLoadingModal(files.length);
+  const total = files.length;
+  await showLoadingModal(total);
   let added = 0;
+  const newTracks = [];
+
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const fileName = file.split(/[\/\\]/).pop();
-    updateLoadingModal(i + 1, files.length, fileName);
+    updateLoadingModal(i + 1, total, fileName);
     if (!tracks.some(t => t.path === file)) {
-      tracks.push({
+      const track = {
         path: file,
         name: fileName.replace(/\.[^.]+$/, ''),
         ext: fileName.split('.').pop().toUpperCase(),
@@ -627,21 +642,160 @@ async function addFolder() {
         dateAdded: Date.now(),
         liked: false,
         categories: ['all-songs']
-      });
+      };
+      tracks.push(track);
+      newTracks.push(track);
       added++;
     }
     await new Promise(r => setTimeout(r, 0));
   }
-  
-  hideLoadingModal();
-  renderAll();
-  loadTrackDurations();
-  loadAllMetadata();
+
+  // Грузим метаданные и длительности прямо в модальном окне
+  if (newTracks.length) {
+    await loadMetadataInModal(newTracks, total);
+  }
+
+  await hideLoadingModal();
   if (currentIndex === -1 && tracks.length > 0) loadTrack(0);
   saveData();
   showToast(`Добавлено ${added} трек(ов) из папки`);
 }
+// Загружает метаданные для всех новых треков пока открыто модальное окно
+async function loadMetadataInModal(newTracks, totalFiles) {
+  if (!window.electronAPI?.getAudioMetadata) return;
 
+  // === Фаза 1: теги и обложки ===
+  setLoadingPhase('metadata', 'Загрузка метаданных...');
+  const CONCURRENCY = 4;
+  let idx = 0;
+  let done = 0;
+
+  async function metaWorker() {
+    while (idx < newTracks.length) {
+      const track = newTracks[idx++];
+      if (!track || track._metaLoaded || track.path.startsWith('demo-')) { done++; continue; }
+      track._metaLoaded = true;
+      try {
+        const meta = await window.electronAPI.getAudioMetadata(track.path);
+        if (meta) {
+          if (meta.title && meta.title.trim()) track.name = meta.title.trim();
+          if (meta.artist && meta.artist.trim()) track.artist = meta.artist.trim();
+          if (meta.album) track.album = meta.album;
+          if (meta.cover && meta.cover.length > 50) track.cover = meta.cover;
+        }
+      } catch {}
+      done++;
+      const pct = Math.round((done / newTracks.length) * 100);
+      const bar = document.getElementById('loadingProgressBar');
+      const stats = document.getElementById('loadingStats');
+      const cur = document.getElementById('loadingCurrent');
+      if (bar) bar.style.width = pct + '%';
+      if (stats) stats.textContent = done + ' / ' + newTracks.length;
+      if (cur) cur.textContent = track.name || '';
+    }
+  }
+
+  const metaWorkers = [];
+  for (let i = 0; i < CONCURRENCY; i++) metaWorkers.push(metaWorker());
+  await Promise.all(metaWorkers);
+
+  // === Фаза 2: длительности ===
+  setLoadingPhase('processing', 'Определение длительности...');
+  idx = 0; done = 0;
+  const durTracks = newTracks.filter(t => !t.duration && !t.path.startsWith('demo-'));
+
+  async function durWorker() {
+    while (idx < durTracks.length) {
+      const track = durTracks[idx++];
+      try {
+        let dur = await window.electronAPI.getAudioDuration(track.path);
+        if (!dur || dur <= 0) dur = await getDurationViaAudio(track);
+        if (dur && dur > 0) track.duration = dur;
+      } catch {}
+      done++;
+      const pct = Math.round((done / durTracks.length) * 100);
+      const bar = document.getElementById('loadingProgressBar');
+      const stats = document.getElementById('loadingStats');
+      if (bar) bar.style.width = pct + '%';
+      if (stats) stats.textContent = done + ' / ' + durTracks.length;
+    }
+  }
+
+  if (durTracks.length > 0) {
+    const durWorkers = [];
+    for (let i = 0; i < CONCURRENCY; i++) durWorkers.push(durWorker());
+    await Promise.all(durWorkers);
+  }
+
+  // === Фаза 3: рендеринг карточек пока модалка открыта ===
+  setLoadingPhase('processing', 'Отрисовка карточек...');
+  await renderPlaylistInBackground();
+
+  saveDataDebounced();
+}
+
+// Рендерит первую страницу плейлиста батчами, обновляя прогресс в модалке
+async function renderPlaylistInBackground() {
+  let displayTracks = currentCategory === 'all-songs'
+    ? [...tracks]
+    : currentCategory === 'liked'
+      ? tracks.filter(t => t.liked)
+      : tracks.filter(t => t.categories?.includes(currentCategory));
+
+  switch(currentSortType) {
+    case 'name-az': displayTracks.sort((a, b) => a.name.localeCompare(b.name, 'ru')); break;
+    case 'name-za': displayTracks.sort((a, b) => b.name.localeCompare(a.name, 'ru')); break;
+    case 'date-new-old': displayTracks.sort((a, b) => b.dateAdded - a.dateAdded); break;
+    case 'date-old-new': displayTracks.sort((a, b) => a.dateAdded - b.dateAdded); break;
+    case 'artist-az': displayTracks.sort((a, b) => (a.artist||'').localeCompare(b.artist||'', 'ru')); break;
+    case 'artist-za': displayTracks.sort((a, b) => (b.artist||'').localeCompare(a.artist||'', 'ru')); break;
+  }
+
+  _currentDisplayTracks = displayTracks;
+  _currentPage = 0;
+
+  const totalPages = Math.ceil(displayTracks.length / PAGE_SIZE);
+  const pageTracks = displayTracks.slice(0, PAGE_SIZE);
+  const BATCH = 15;
+
+  if (!playlistGrid) return;
+  playlistGrid.innerHTML = '';
+
+  const bar = document.getElementById('loadingProgressBar');
+  const stats = document.getElementById('loadingStats');
+  const cur = document.getElementById('loadingCurrent');
+
+  let rendered = 0;
+
+  for (let start = 0; start < pageTracks.length; start += BATCH) {
+    const end = Math.min(start + BATCH, pageTracks.length);
+    const fragment = document.createDocumentFragment();
+    for (let i = start; i < end; i++) {
+      const track = pageTracks[i];
+      const realIndex = tracks.findIndex(t => t.path === track.path);
+      if (realIndex === -1) continue;
+      fragment.appendChild(buildTrackCard(track, realIndex, false));
+    }
+    playlistGrid.appendChild(fragment);
+    rendered = end;
+
+    const pct = Math.round((rendered / pageTracks.length) * 100);
+    if (bar) bar.style.width = pct + '%';
+    if (stats) stats.textContent = rendered + ' / ' + pageTracks.length;
+    if (cur && pageTracks[end-1]) cur.textContent = pageTracks[end-1].name || '';
+
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  if (totalPages > 1) {
+    const paginationEl = document.createElement('div');
+    paginationEl.className = 'pagination';
+    paginationEl.innerHTML = buildPaginationHTML(totalPages, 0);
+    playlistGrid.appendChild(paginationEl);
+  }
+
+  updatePlaylistInfo(displayTracks);
+}
 async function syncFolder(folderPath) {
   const files = await window.electronAPI?.getAudioFilesInFolder?.(folderPath);
   if (!files?.length) return;
@@ -687,16 +841,15 @@ function addDemoTracks() {
   renderAll();
 }
 
-// ===== РЕНДЕРИНГ ПЛЕЙЛИСТА (с виртуализацией для больших списков) =====
-const RENDER_BATCH = 60; // показываем до 60 треков на странице
-let _renderBatchTimer = null;
-let _currentDisplayTracks = []; // кэш отсортированного списка для пагинации
-let _renderPage = 0;
+// ===== РЕНДЕРИНГ ПЛЕЙЛИСТА (пагинация по 60 треков) =====
 const PAGE_SIZE = 60;
+let _currentDisplayTracks = []; // кэш отсортированного списка
+let _currentPage = 0;           // текущая страница (0-based)
 
-function renderPlaylist() {
+function renderPlaylist(page) {
   if (!playlistGrid) return;
-  
+  if (page !== undefined) _currentPage = page;
+
   let displayTracks = currentCategory === 'all-songs' 
     ? [...tracks] 
     : currentCategory === 'liked'
@@ -734,57 +887,97 @@ function renderPlaylist() {
   }
 
   _currentDisplayTracks = displayTracks;
-  _renderPage = 0;
+
+  const totalPages = Math.ceil(displayTracks.length / PAGE_SIZE);
+  // Клампируем страницу
+  if (_currentPage >= totalPages) _currentPage = totalPages - 1;
+  if (_currentPage < 0) _currentPage = 0;
+
+  const startIdx = _currentPage * PAGE_SIZE;
+  const endIdx = Math.min(startIdx + PAGE_SIZE, displayTracks.length);
+  const pageTracks = displayTracks.slice(startIdx, endIdx);
 
   playlistGrid.innerHTML = '';
   updatePlaylistInfo(displayTracks);
   updateSelectionBar(displayTracks);
 
-  // Рендерим первые PAGE_SIZE треков
-  _renderBatchTimer && clearTimeout(_renderBatchTimer);
-  renderBatch(displayTracks, 0);
-}
-
-function renderBatch(displayTracks, startIdx) {
+  // Рендерим батчами по 20 карточек через rAF чтобы не блокировать UI
   const isSelecting = selectedTracks.size > 0;
-  const endIdx = Math.min(startIdx + RENDER_BATCH, displayTracks.length);
-  const fragment = document.createDocumentFragment();
+  const BATCH = 20;
+  let batchIdx = 0;
 
-  for (let i = startIdx; i < endIdx; i++) {
-    const track = displayTracks[i];
-    const realIndex = tracks.findIndex(t => t.path === track.path);
-    if (realIndex === -1) continue;
-
-    const card = buildTrackCard(track, realIndex, isSelecting);
-    fragment.appendChild(card);
+  function renderNextBatch() {
+    const end = Math.min(batchIdx + BATCH, pageTracks.length);
+    const fragment = document.createDocumentFragment();
+    for (let i = batchIdx; i < end; i++) {
+      const track = pageTracks[i];
+      const realIndex = tracks.findIndex(t => t.path === track.path);
+      if (realIndex === -1) continue;
+      fragment.appendChild(buildTrackCard(track, realIndex, isSelecting));
+    }
+    playlistGrid.appendChild(fragment);
+    batchIdx = end;
+    if (batchIdx < pageTracks.length) {
+      requestAnimationFrame(renderNextBatch);
+    } else {
+      // Пагинация добавляется после всех карточек
+      if (totalPages > 1) {
+        const paginationEl = document.createElement('div');
+        paginationEl.className = 'pagination';
+        paginationEl.innerHTML = buildPaginationHTML(totalPages, _currentPage);
+        playlistGrid.appendChild(paginationEl);
+      }
+      // Загружаем метаданные только для треков без данных (старые сохранения)
+      loadMetadataForPageIfNeeded(pageTracks);
+    }
   }
-
-  playlistGrid.appendChild(fragment);
-
-  // Если треков больше PAGE_SIZE — добавляем кнопку "Показать ещё"
-  if (endIdx < displayTracks.length) {
-    // Убираем старую кнопку если есть
-    const oldBtn = playlistGrid.querySelector('.load-more-btn');
-    if (oldBtn) oldBtn.remove();
-
-    const loadMoreBtn = document.createElement('div');
-    loadMoreBtn.className = 'load-more-btn';
-    loadMoreBtn.innerHTML = `
-      <button onclick="loadMoreTracks()">
-        <i class="fa-solid fa-chevron-down"></i>
-        Показать ещё (${displayTracks.length - endIdx} треков)
-      </button>
-    `;
-    playlistGrid.appendChild(loadMoreBtn);
-  }
+  requestAnimationFrame(renderNextBatch);
 }
 
-window.loadMoreTracks = function() {
-  const oldBtn = playlistGrid.querySelector('.load-more-btn');
-  if (oldBtn) oldBtn.remove();
-  const nextStart = playlistGrid.querySelectorAll('.track-card').length;
-  renderBatch(_currentDisplayTracks, nextStart);
+function buildPaginationHTML(totalPages, currentPage) {
+  const pages = [];
+  // Всегда показываем: первую, последнюю, текущую и ±2 от текущей
+  const show = new Set([0, totalPages - 1]);
+  for (let i = Math.max(0, currentPage - 2); i <= Math.min(totalPages - 1, currentPage + 2); i++) {
+    show.add(i);
+  }
+  const sorted = [...show].sort((a, b) => a - b);
+
+  let html = '';
+  let prev = -1;
+  for (const p of sorted) {
+    if (prev !== -1 && p - prev > 1) {
+      html += `<button class="page-btn dots" disabled>…</button>`;
+    }
+    html += `<button class="page-btn${p === currentPage ? ' active' : ''}" onclick="goToPage(${p})">${p + 1}</button>`;
+    prev = p;
+  }
+  return html;
+}
+
+window.goToPage = function(page) {
+  _currentPage = page;
+  renderPlaylist();
+  loadTrackDurationsForPage();
+  // Скроллим наверх плейлиста
+  const pv = document.getElementById('playlistView');
+  if (pv) pv.scrollTop = 0;
 };
+
+// Загружаем метаданные только для треков БЕЗ данных (старые сохранения без _metaLoaded)
+// Треки загруженные через модалку уже имеют все данные — их не трогаем
+function loadMetadataForPage(pageTracks) {
+  loadMetadataForPageIfNeeded(pageTracks);
+}
+
+function loadMetadataForPageIfNeeded(pageTracks) {
+  const toLoad = pageTracks.filter(t => !t._metaLoaded && !t.path.startsWith('demo-'));
+  if (!toLoad.length) return;
+  _metaQueue = [...toLoad, ..._metaQueue.filter(t => !toLoad.includes(t))];
+  const needed = Math.min(META_CONCURRENCY, toLoad.length) - _metaActive;
+  for (let i = 0; i < needed; i++) _metaWorker();
+}
+
 
 function buildTrackCard(track, realIndex, isSelecting) {
   const isActive = realIndex === currentIndex;
@@ -1232,16 +1425,24 @@ function saveDataDebounced() {
 }
 
 // ===== ЗАГРУЗКА МЕТАДАННЫХ (очередь, не зависает) =====
-const META_CONCURRENCY = 2; // одновременно не более 2 IPC запросов (снижено для плавности)
+const META_CONCURRENCY = 2;
 let _metaQueue = [];
 let _metaActive = 0;
 let _metaPaused = false;
 
+// Инициализирует очередь но НЕ запускает загрузку — 
+// метаданные грузятся только для текущей страницы через loadMetadataForPage
 function loadAllMetadata() {
-  _metaQueue = tracks.filter(t => !t._metaLoaded && !t.path.startsWith('demo-'));
+  // Просто сбрасываем очередь — реальная загрузка идёт через loadMetadataForPage
+  _metaQueue = [];
   _metaActive = 0;
   _metaPaused = false;
-  for (let i = 0; i < META_CONCURRENCY; i++) _metaWorker();
+  // Запускаем загрузку для текущей страницы если она открыта
+  if (currentPage === 'all-songs' || currentPage === 'liked' || currentPage === 'custom') {
+    const startIdx = _currentPage * PAGE_SIZE;
+    const pageTracks = _currentDisplayTracks.slice(startIdx, startIdx + PAGE_SIZE);
+    if (pageTracks.length) loadMetadataForPage(pageTracks);
+  }
 }
 
 function _metaWorker() {
@@ -1273,27 +1474,8 @@ async function loadMetadataForTrack(track) {
       if (meta.album) track.album = meta.album;
       if (meta.cover && meta.cover.length > 50) { track.cover = meta.cover; changed = true; }
       if (changed) {
-        // Обновляем DOM через requestAnimationFrame чтобы не блокировать UI
+        // Обновляем только player-bar и recent — карточки плейлиста обновятся при следующем рендере страницы
         requestAnimationFrame(() => {
-          // Обновляем карточку в плейлисте
-          const card = playlistGrid?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
-          if (card) {
-            const titleEl = card.querySelector('.track-card-title');
-            if (titleEl) titleEl.textContent = track.name;
-            const typeEl = card.querySelector('.track-card-type span');
-            if (typeEl) typeEl.textContent = track.artist || getFileTypeText(track.ext);
-            const artEl = card.querySelector('.track-card-art');
-            if (artEl && track.cover && !card.classList.contains('selected')) {
-              let img = artEl.querySelector('img');
-              if (!img) {
-                img = document.createElement('img');
-                img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
-                img.loading = 'lazy';
-                artEl.insertBefore(img, artEl.firstChild);
-              }
-              img.src = track.cover;
-            }
-          }
           // Обновляем player-bar если это текущий трек
           if (tracks[currentIndex]?.path === track.path) {
             trackNameEl.textContent = track.name;
@@ -1301,77 +1483,90 @@ async function loadMetadataForTrack(track) {
             const playerArt = document.querySelector('.player-track-art');
             if (playerArt && track.cover) {
               let img = playerArt.querySelector('img');
-              if (!img) {
-                img = document.createElement('img');
-                playerArt.insertBefore(img, playerArt.firstChild);
-              }
+              if (!img) { img = document.createElement('img'); playerArt.insertBefore(img, playerArt.firstChild); }
               img.src = track.cover;
             }
             updateNowPlayingCard();
           }
           // Обновляем недавние
           const recentCard = recentCards?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
-          if (recentCard && track.cover) {
-            const artEl = recentCard.querySelector('.song-card-art');
-            if (artEl) {
-              let img = artEl.querySelector('img');
-              if (!img) {
-                img = document.createElement('img');
-                img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
-                artEl.insertBefore(img, artEl.firstChild);
+          if (recentCard) {
+            if (track.cover) {
+              const artEl = recentCard.querySelector('.song-card-art');
+              if (artEl) {
+                let img = artEl.querySelector('img');
+                if (!img) {
+                  img = document.createElement('img');
+                  img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
+                  artEl.insertBefore(img, artEl.firstChild);
+                }
+                img.src = track.cover;
               }
-              img.src = track.cover;
             }
             const artistEl = recentCard.querySelector('.song-card-artist');
             if (artistEl) artistEl.textContent = track.artist || getFileTypeText(track.ext);
           }
+          // Обновляем карточку в плейлисте только текстовые поля (без обложки — она вставится при рендере)
+          const card = playlistGrid?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
+          if (card) {
+            const titleEl = card.querySelector('.track-card-title');
+            if (titleEl) titleEl.textContent = track.name;
+            const typeEl = card.querySelector('.track-card-type span');
+            if (typeEl) typeEl.textContent = track.artist || getFileTypeText(track.ext);
+          }
         });
-        // Сохраняем чтобы при следующем запуске не перезагружать
         saveDataDebounced();
       }
     }
-  } catch(e) {
-    // Тихо игнорируем
-  }
+  } catch(e) { /* тихо */ }
 }
 
 // ===== ЗАГРУЗКА ДЛИТЕЛЬНОСТИ =====
-function loadTrackDurations() {
-  const pending = tracks.filter(t => !t.duration && !t.path.startsWith('demo-'));
+
+// Вспомогательная функция — доступна глобально для loadMetadataInModal
+function getDurationViaAudio(track) {
+  return new Promise((resolve) => {
+    const a = new Audio();
+    a.preload = 'metadata';
+    a.src = buildFileUrl(track.path);
+    const cleanup = () => { a.src = ''; a.onloadedmetadata = null; a.onerror = null; };
+    a.onloadedmetadata = () => { cleanup(); resolve(a.duration || null); };
+    a.onerror = () => { cleanup(); resolve(null); };
+    setTimeout(() => { cleanup(); resolve(null); }, 8000);
+  });
+}
+
+// Грузит длительности только для треков текущей страницы
+function loadTrackDurationsForPage() {
+  const startIdx = _currentPage * PAGE_SIZE;
+  const pageTracks = _currentDisplayTracks.slice(startIdx, startIdx + PAGE_SIZE);
+  const pending = pageTracks.filter(t => !t.duration && !t.path.startsWith('demo-'));
   if (!pending.length) return;
 
   const CONCURRENCY = 3;
   let idx = 0;
   let renderScheduled = false;
-  let pendingRenderCount = 0;
 
   function scheduleRender() {
-    pendingRenderCount++;
     if (renderScheduled) return;
     renderScheduled = true;
-    // Рендерим не чаще раза в секунду при большом кол-ве треков
-    const delay = pending.length > 100 ? 1000 : 500;
     setTimeout(() => {
       renderScheduled = false;
-      pendingRenderCount = 0;
       if (currentPage === 'all-songs' || currentPage === 'liked' || currentPage === 'custom') {
-        renderPlaylist();
+        // Обновляем только длительности в уже отрисованных карточках
+        pending.forEach(track => {
+          if (!track.duration) return;
+          const card = playlistGrid?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
+          if (card) {
+            const durEl = card.querySelector('.track-card-duration');
+            if (durEl) durEl.innerHTML = `<i class="fa-regular fa-clock"></i> ${formatTime(track.duration)}`;
+          }
+        });
+        if (tracks[currentIndex]?.path && pending.some(t => t.path === tracks[currentIndex].path)) {
+          totalTimeEl.textContent = formatTime(tracks[currentIndex].duration || 0);
+        }
       }
-    }, delay);
-  }
-
-  // Fallback: получить длительность через Audio элемент
-  function getDurationViaAudio(track) {
-    return new Promise((resolve) => {
-      const a = new Audio();
-      a.preload = 'metadata';
-      a.src = buildFileUrl(track.path);
-      const cleanup = () => { a.src = ''; a.onloadedmetadata = null; a.onerror = null; };
-      a.onloadedmetadata = () => { cleanup(); resolve(a.duration || null); };
-      a.onerror = () => { cleanup(); resolve(null); };
-      // Таймаут 8 секунд
-      setTimeout(() => { cleanup(); resolve(null); }, 8000);
-    });
+    }, 400);
   }
 
   async function worker() {
@@ -1381,26 +1576,24 @@ function loadTrackDurations() {
       if (trackIdx === -1) continue;
       try {
         let dur = await window.electronAPI.getAudioDuration(track.path);
-        if (!dur || dur <= 0) {
-          dur = await getDurationViaAudio(track);
-        }
+        if (!dur || dur <= 0) dur = await getDurationViaAudio(track);
         if (dur && dur > 0) {
           tracks[trackIdx].duration = dur;
-          if (trackIdx === currentIndex) {
-            totalTimeEl.textContent = formatTime(dur);
-          }
+          if (trackIdx === currentIndex) totalTimeEl.textContent = formatTime(dur);
           scheduleRender();
           saveDataDebounced();
         }
-      } catch {
-        // Тихо игнорируем ошибки
-      }
-      // Небольшая пауза между треками
+      } catch { /* тихо */ }
       await new Promise(r => setTimeout(r, 20));
     }
   }
 
   for (let i = 0; i < CONCURRENCY; i++) worker();
+}
+
+// Старая функция — оставляем для совместимости, теперь грузит только текущую страницу
+function loadTrackDurations() {
+  loadTrackDurationsForPage();
 }
 
 // ===== ЗАГРУЗКА ТРЕКА =====
@@ -1679,6 +1872,7 @@ function handleSort(option) {
   option.classList.add('active');
   currentSortType = option.dataset.sort;
   sortDropdown.classList.remove('open');
+  _currentPage = 0;
   renderPlaylist();
 }
 
@@ -1819,7 +2013,9 @@ window.switchPage = function(el) {
     case 'custom':
       playlist?.classList.add('active');
       sortCont?.classList.remove('hidden');
+      _currentPage = 0;
       renderPlaylist();
+      loadTrackDurationsForPage();
       break;
   }
   sortDropdown?.classList.remove('open');
@@ -2182,13 +2378,70 @@ function handleKeyDown(e) {
 }
 
 // ===== МОДАЛКА ЗАГРУЗКИ =====
-function showLoadingModal(total) {
+let _loadingPhrases = null;
+let _phraseTimer = null;
+let _phrasePhase = 'loading';
+
+async function ensureLoadingPhrases() {
+  if (_loadingPhrases) return;
+  try {
+    _loadingPhrases = await window.electronAPI?.getLoadingPhrases?.();
+  } catch { /* тихо */ }
+  if (!_loadingPhrases) {
+    _loadingPhrases = {
+      loading: ['Загружаем треки...'],
+      metadata: ['Читаем метаданные...'],
+      processing: ['Финальная обработка...'],
+      done: ['Готово!']
+    };
+  }
+}
+
+function _getRandomPhrase(phase) {
+  const list = _loadingPhrases?.[phase];
+  if (!list?.length) return '';
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function _startPhraseRotation(phase) {
+  _phrasePhase = phase;
+  _stopPhraseRotation();
+  const el = document.getElementById('loadingPhrase');
+  if (!el) return;
+
+  function showNext() {
+    // Плавно скрываем
+    el.classList.add('fade');
+    setTimeout(() => {
+      el.textContent = _getRandomPhrase(_phrasePhase);
+      el.classList.remove('fade');
+    }, 500);
+  }
+
+  // Показываем сразу первую фразу
+  el.textContent = _getRandomPhrase(phase);
+  el.classList.remove('fade');
+  // Меняем каждые 5 секунд
+  _phraseTimer = setInterval(showNext, 5000);
+}
+
+function _stopPhraseRotation() {
+  if (_phraseTimer) { clearInterval(_phraseTimer); _phraseTimer = null; }
+}
+
+async function showLoadingModal(total) {
+  await ensureLoadingPhrases();
   const m = document.getElementById('loadingModal');
   if (!m) return;
+  m.style.opacity = '';
+  m.style.transition = '';
   document.getElementById('loadingProgressBar').style.width = '0%';
   document.getElementById('loadingStats').textContent = `0 / ${total}`;
   document.getElementById('loadingCurrent').textContent = 'Подготовка...';
+  const titleEl = document.getElementById('loadingTitle');
+  if (titleEl) titleEl.textContent = 'Загрузка файлов...';
   m.classList.add('open');
+  _startPhraseRotation('loading');
 }
 
 function updateLoadingModal(current, total, fileName) {
@@ -2201,9 +2454,54 @@ function updateLoadingModal(current, total, fileName) {
   if (cur) cur.textContent = fileName;
 }
 
-function hideLoadingModal() {
+function setLoadingPhase(phase, titleText) {
+  _startPhraseRotation(phase);
+  const titleEl = document.getElementById('loadingTitle');
+  if (titleEl) titleEl.textContent = titleText;
+  const bar = document.getElementById('loadingProgressBar');
+  if (bar) bar.style.width = '0%';
+}
+
+// Плавное закрытие: показываем фразу "done", ждём 1с, потом 1с fade
+async function hideLoadingModal() {
+  _stopPhraseRotation();
   const m = document.getElementById('loadingModal');
-  if (m) m.classList.remove('open');
+  if (!m) return;
+
+  // Показываем фазу завершения
+  const titleEl = document.getElementById('loadingTitle');
+  const bar = document.getElementById('loadingProgressBar');
+  const stats = document.getElementById('loadingStats');
+  const cur = document.getElementById('loadingCurrent');
+  const phraseEl = document.getElementById('loadingPhrase');
+  const spinner = document.getElementById('loadingSpinner');
+
+  if (bar) bar.style.width = '100%';
+  if (titleEl) titleEl.textContent = 'Готово!';
+  if (stats) stats.textContent = '';
+  if (cur) cur.textContent = '';
+  if (spinner) spinner.style.borderTopColor = 'rgba(255,255,255,0.3)';
+
+  // Показываем финальную фразу
+  if (phraseEl) {
+    phraseEl.classList.add('fade');
+    await new Promise(r => setTimeout(r, 300));
+    phraseEl.textContent = _getRandomPhrase('done');
+    phraseEl.classList.remove('fade');
+  }
+
+  // Ждём 1 секунду
+  await new Promise(r => setTimeout(r, 1000));
+
+  // Плавно исчезаем за 1 секунду
+  m.style.transition = 'opacity 1s ease';
+  m.style.opacity = '0';
+  await new Promise(r => setTimeout(r, 1000));
+
+  m.classList.remove('open');
+  m.style.opacity = '';
+  m.style.transition = '';
+  if (spinner) spinner.style.borderTopColor = '';
 }
 
 // ===== КАРТОЧКА "СЕЙЧАС ИГРАЕТ" =====

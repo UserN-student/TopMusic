@@ -176,6 +176,17 @@ ipcMain.handle('open-app-data-folder', async () => {
   }
 });
 
+// === Загрузить фразы для модального окна загрузки ===
+ipcMain.handle('get-loading-phrases', async () => {
+  try {
+    const phrasesPath = path.join(__dirname, 'loading-phrases.json');
+    const content = await fs.readFile(phrasesPath, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+});
+
 // Сохранить данные
 ipcMain.handle('save-data', async (_, data) => {
   try {
