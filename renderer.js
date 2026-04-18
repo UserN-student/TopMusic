@@ -77,6 +77,8 @@ let selectedTracks = new Set();
 let contextTrackIndex = null;
 let searchQuery = '';
 let recentlyPlayed = []; // отдельный список недавно воспроизведённых
+let marqueeEnabled = true; // бегущая строка в player-bar
+let _marqueeTimers = {}; // таймеры для бегущей строки
 
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 function escapeHtml(str) {
@@ -357,6 +359,14 @@ function setupEventListeners() {
     }
   });
   
+  // Кнопка "Открыть местоположение приложения"
+  const openAppFolderBtn = document.getElementById('openAppFolderBtn');
+  if (openAppFolderBtn) {
+    openAppFolderBtn.onclick = () => {
+      window.electronAPI?.openAppDataFolder?.();
+    };
+  }
+
   // Кнопка очистки библиотеки
   const resetLibraryBtn = document.getElementById('resetLibraryBtn');
   if (resetLibraryBtn) {
@@ -677,7 +687,13 @@ function addDemoTracks() {
   renderAll();
 }
 
-// ===== РЕНДЕРИНГ ПЛЕЙЛИСТА =====
+// ===== РЕНДЕРИНГ ПЛЕЙЛИСТА (с виртуализацией для больших списков) =====
+const RENDER_BATCH = 60; // показываем до 60 треков на странице
+let _renderBatchTimer = null;
+let _currentDisplayTracks = []; // кэш отсортированного списка для пагинации
+let _renderPage = 0;
+const PAGE_SIZE = 60;
+
 function renderPlaylist() {
   if (!playlistGrid) return;
   
@@ -713,93 +729,135 @@ function renderPlaylist() {
     case 'name-za': displayTracks.sort((a, b) => b.name.localeCompare(a.name, 'ru')); break;
     case 'date-new-old': displayTracks.sort((a, b) => b.dateAdded - a.dateAdded); break;
     case 'date-old-new': displayTracks.sort((a, b) => a.dateAdded - b.dateAdded); break;
+    case 'artist-az': displayTracks.sort((a, b) => (a.artist||'').localeCompare(b.artist||'', 'ru')); break;
+    case 'artist-za': displayTracks.sort((a, b) => (b.artist||'').localeCompare(a.artist||'', 'ru')); break;
   }
+
+  _currentDisplayTracks = displayTracks;
+  _renderPage = 0;
 
   playlistGrid.innerHTML = '';
   updatePlaylistInfo(displayTracks);
   updateSelectionBar(displayTracks);
 
-  const fragment = document.createDocumentFragment();
+  // Рендерим первые PAGE_SIZE треков
+  _renderBatchTimer && clearTimeout(_renderBatchTimer);
+  renderBatch(displayTracks, 0);
+}
+
+function renderBatch(displayTracks, startIdx) {
   const isSelecting = selectedTracks.size > 0;
-  
-  displayTracks.forEach((track) => {
+  const endIdx = Math.min(startIdx + RENDER_BATCH, displayTracks.length);
+  const fragment = document.createDocumentFragment();
+
+  for (let i = startIdx; i < endIdx; i++) {
+    const track = displayTracks[i];
     const realIndex = tracks.findIndex(t => t.path === track.path);
-    if (realIndex === -1) return;
+    if (realIndex === -1) continue;
 
-    const isActive = realIndex === currentIndex;
-    const isSelected = selectedTracks.has(track.path);
-    const card = document.createElement('div');
-    card.className = 'track-card' + (isActive ? ' active-track' : '') + (isSelected ? ' selected' : '');
-    card.dataset.index = realIndex;
-    card.dataset.path = track.path;
-    
-    // Применяем кастомный цвет карточки
-    if (track.cardColor && !isSelected) {
-      const hex = track.cardColor;
-      const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-      card.style.background = `rgba(${r},${g},${b},0.12)`;
-      card.style.borderColor = `rgba(${r},${g},${b},0.35)`;
-      card.style.setProperty('--card-accent', hex);
-    }
-
-    const duration = track.duration ? formatTime(track.duration) : '--:--';
-    const fileType = getFileTypeText(track.ext);
-    const iconClass = isActive && isPlaying ? 'pause' : 'play';
-
-    const artContent = isSelected
-      ? `<div class="select-check"><i class="fa-solid fa-check"></i></div>`
-      : track.cover
-        ? `<img src="${track.cover}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;"><div class="play-overlay"><i class="fa-solid fa-${iconClass}"></i></div>`
-        : `<i class="fa-solid fa-music"></i><div class="play-overlay"><i class="fa-solid fa-${iconClass}"></i></div>`;
-
-    card.innerHTML = `
-      <div class="track-card-art">
-        ${artContent}
-      </div>
-      <div class="track-card-info">
-        <div class="track-card-title">${escapeHtml(track.name)}</div>
-        <div class="track-card-meta">
-          <span class="track-card-type"><i class="fa-regular fa-file-audio"></i> <span>${track.artist ? escapeHtml(track.artist) : fileType}</span></span>
-          <span class="track-card-duration"><i class="fa-regular fa-clock"></i> ${duration}</span>
-          ${track.liked ? '<span class="track-liked-badge"><i class="fa-solid fa-heart"></i></span>' : ''}
-        </div>
-      </div>
-      <div class="track-card-menu">
-        <button class="track-menu-btn" data-index="${realIndex}"><i class="fa-solid fa-ellipsis"></i></button>
-      </div>
-    `;
-
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('.track-menu-btn')) return;
-      if (isSelecting || e.ctrlKey || e.metaKey) {
-        e.stopPropagation();
-        toggleTrackSelection(track.path);
-      } else if (realIndex === currentIndex) {
-        togglePlay();
-      } else {
-        currentIndex = realIndex;
-        loadTrack(realIndex);
-        play();
-      }
-    });
-
-    const menuBtn = card.querySelector('.track-menu-btn');
-    menuBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      contextTrackIndex = realIndex;
-      showContextMenu(e, menuBtn);
-    });
-
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      contextTrackIndex = realIndex;
-      showContextMenu(e, card);
-    });
-
+    const card = buildTrackCard(track, realIndex, isSelecting);
     fragment.appendChild(card);
-  });
-  
+  }
+
   playlistGrid.appendChild(fragment);
+
+  // Если треков больше PAGE_SIZE — добавляем кнопку "Показать ещё"
+  if (endIdx < displayTracks.length) {
+    // Убираем старую кнопку если есть
+    const oldBtn = playlistGrid.querySelector('.load-more-btn');
+    if (oldBtn) oldBtn.remove();
+
+    const loadMoreBtn = document.createElement('div');
+    loadMoreBtn.className = 'load-more-btn';
+    loadMoreBtn.innerHTML = `
+      <button onclick="loadMoreTracks()">
+        <i class="fa-solid fa-chevron-down"></i>
+        Показать ещё (${displayTracks.length - endIdx} треков)
+      </button>
+    `;
+    playlistGrid.appendChild(loadMoreBtn);
+  }
+}
+
+window.loadMoreTracks = function() {
+  const oldBtn = playlistGrid.querySelector('.load-more-btn');
+  if (oldBtn) oldBtn.remove();
+  const nextStart = playlistGrid.querySelectorAll('.track-card').length;
+  renderBatch(_currentDisplayTracks, nextStart);
+};
+
+function buildTrackCard(track, realIndex, isSelecting) {
+  const isActive = realIndex === currentIndex;
+  const isSelected = selectedTracks.has(track.path);
+  const card = document.createElement('div');
+  card.className = 'track-card' + (isActive ? ' active-track' : '') + (isSelected ? ' selected' : '');
+  card.dataset.index = realIndex;
+  card.dataset.path = track.path;
+  
+  // Применяем кастомный цвет карточки
+  if (track.cardColor && !isSelected) {
+    const hex = track.cardColor;
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    card.style.background = `rgba(${r},${g},${b},0.12)`;
+    card.style.borderColor = `rgba(${r},${g},${b},0.35)`;
+    card.style.setProperty('--card-accent', hex);
+  }
+
+  const duration = track.duration ? formatTime(track.duration) : '--:--';
+  const fileType = getFileTypeText(track.ext);
+  const iconClass = isActive && isPlaying ? 'pause' : 'play';
+
+  const artContent = isSelected
+    ? `<div class="select-check"><i class="fa-solid fa-check"></i></div>`
+    : track.cover
+      ? `<img src="${track.cover}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" loading="lazy"><div class="play-overlay"><i class="fa-solid fa-${iconClass}"></i></div>`
+      : `<i class="fa-solid fa-music"></i><div class="play-overlay"><i class="fa-solid fa-${iconClass}"></i></div>`;
+
+  card.innerHTML = `
+    <div class="track-card-art">
+      ${artContent}
+    </div>
+    <div class="track-card-info">
+      <div class="track-card-title">${escapeHtml(track.name)}</div>
+      <div class="track-card-meta">
+        <span class="track-card-type"><i class="fa-regular fa-file-audio"></i> <span>${track.artist ? escapeHtml(track.artist) : fileType}</span></span>
+        <span class="track-card-duration"><i class="fa-regular fa-clock"></i> ${duration}</span>
+        ${track.liked ? '<span class="track-liked-badge"><i class="fa-solid fa-heart"></i></span>' : ''}
+      </div>
+    </div>
+    <div class="track-card-menu">
+      <button class="track-menu-btn" data-index="${realIndex}"><i class="fa-solid fa-ellipsis"></i></button>
+    </div>
+  `;
+
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.track-menu-btn')) return;
+    if (isSelecting || e.ctrlKey || e.metaKey) {
+      e.stopPropagation();
+      toggleTrackSelection(track.path);
+    } else if (realIndex === currentIndex) {
+      togglePlay();
+    } else {
+      currentIndex = realIndex;
+      loadTrack(realIndex);
+      play();
+    }
+  });
+
+  const menuBtn = card.querySelector('.track-menu-btn');
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    contextTrackIndex = realIndex;
+    showContextMenu(e, menuBtn);
+  });
+
+  card.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    contextTrackIndex = realIndex;
+    showContextMenu(e, card);
+  });
+
+  return card;
 }
 
 function updatePlaylistInfo(displayTracks) {
@@ -1049,7 +1107,6 @@ function renderRecent() {
   if (!recentCards) return;
   recentCards.innerHTML = '';
   
-  // Используем recentlyPlayed если есть, иначе fallback на tracks по dateAdded
   const source = recentlyPlayed.length > 0 ? recentlyPlayed : [];
   
   if (!source.length) {
@@ -1064,20 +1121,25 @@ function renderRecent() {
     if (!track) return;
     const idx = tracks.findIndex(t => t.path === path);
     
+    const isCurrentAndPlaying = idx === currentIndex && isPlaying;
     const card = document.createElement('div');
-    card.className = 'song-card' + (idx === currentIndex && isPlaying ? ' playing' : '');
+    card.className = 'song-card' + (isCurrentAndPlaying ? ' playing' : '');
     card.dataset.path = track.path;
+    card.dataset.idx = idx;
     
     card.innerHTML = `
       <div class="song-card-art">
-        ${track.cover ? `<img src="${track.cover}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:12px;">` : '<i class="fa-solid fa-music"></i>'}
-        <div class="play-overlay"><i class="fa-solid fa-${idx === currentIndex && isPlaying ? 'pause' : 'play'}"></i></div>
+        ${track.cover ? `<img src="${track.cover}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;">` : '<i class="fa-solid fa-music"></i>'}
+        <div class="play-overlay"><i class="fa-solid fa-${isCurrentAndPlaying ? 'pause' : 'play'}"></i></div>
       </div>
       <div class="song-card-title">${escapeHtml(track.name)}</div>
       <div class="song-card-artist">${track.artist || getFileTypeText(track.ext)}${track.duration ? ' · ' + formatTime(track.duration) : ''}</div>
     `;
     card.onclick = () => {
-      if (idx !== -1) {
+      if (idx === currentIndex) {
+        // Тот же трек — toggle play/pause
+        togglePlay();
+      } else {
         currentIndex = idx;
         loadTrack(idx);
         play();
@@ -1092,11 +1154,59 @@ function renderRecent() {
   });
 }
 
-// Добавить трек в список недавних
+// Добавить трек в список недавних (с анимацией перемещения)
 function addToRecentlyPlayed(path) {
+  const wasFirst = recentlyPlayed[0] === path;
   recentlyPlayed = recentlyPlayed.filter(p => p !== path);
   recentlyPlayed.unshift(path);
   if (recentlyPlayed.length > 20) recentlyPlayed = recentlyPlayed.slice(0, 20);
+  // Перерисовываем с анимацией только если трек переместился
+  if (!wasFirst) {
+    renderRecentAnimated();
+  }
+}
+
+function renderRecentAnimated() {
+  if (!recentCards) return;
+  // FLIP-анимация: запоминаем позиции до перерисовки
+  const oldPositions = {};
+  recentCards.querySelectorAll('.song-card').forEach(card => {
+    const rect = card.getBoundingClientRect();
+    oldPositions[card.dataset.path] = { left: rect.left, top: rect.top };
+  });
+
+  renderRecent();
+
+  // Анимируем новые позиции
+  recentCards.querySelectorAll('.song-card').forEach(card => {
+    const path = card.dataset.path;
+    if (oldPositions[path]) {
+      const newRect = card.getBoundingClientRect();
+      const dx = oldPositions[path].left - newRect.left;
+      const dy = oldPositions[path].top - newRect.top;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        card.style.transform = `translate(${dx}px, ${dy}px)`;
+        card.style.transition = 'none';
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            card.style.transition = 'transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            card.style.transform = '';
+          });
+        });
+      }
+    } else {
+      // Новая карточка — появляется
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.88) translateY(8px)';
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+          card.style.opacity = '1';
+          card.style.transform = '';
+        });
+      });
+    }
+  });
 }
 
 function updateRecentlyPlaying() {
@@ -1122,25 +1232,32 @@ function saveDataDebounced() {
 }
 
 // ===== ЗАГРУЗКА МЕТАДАННЫХ (очередь, не зависает) =====
-const META_CONCURRENCY = 3; // одновременно не более 3 IPC запросов
+const META_CONCURRENCY = 2; // одновременно не более 2 IPC запросов (снижено для плавности)
 let _metaQueue = [];
 let _metaActive = 0;
+let _metaPaused = false;
 
 function loadAllMetadata() {
   _metaQueue = tracks.filter(t => !t._metaLoaded && !t.path.startsWith('demo-'));
   _metaActive = 0;
+  _metaPaused = false;
   for (let i = 0; i < META_CONCURRENCY; i++) _metaWorker();
 }
 
 function _metaWorker() {
-  if (!_metaQueue.length) return;
+  if (_metaPaused || !_metaQueue.length) return;
   const track = _metaQueue.shift();
-  if (!track || track._metaLoaded) { _metaWorker(); return; }
+  if (!track || track._metaLoaded) { 
+    // Небольшая пауза между треками чтобы не блокировать UI
+    setTimeout(_metaWorker, 10);
+    return; 
+  }
   track._metaLoaded = true;
   _metaActive++;
   loadMetadataForTrack(track).then(() => {
     _metaActive--;
-    _metaWorker();
+    // Пауза между загрузками чтобы UI оставался отзывчивым
+    setTimeout(_metaWorker, 30);
   });
 }
 
@@ -1156,55 +1273,59 @@ async function loadMetadataForTrack(track) {
       if (meta.album) track.album = meta.album;
       if (meta.cover && meta.cover.length > 50) { track.cover = meta.cover; changed = true; }
       if (changed) {
-        // Обновляем карточку в плейлисте
-        const card = playlistGrid?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
-        if (card) {
-          const titleEl = card.querySelector('.track-card-title');
-          if (titleEl) titleEl.textContent = track.name;
-          const typeEl = card.querySelector('.track-card-type span');
-          if (typeEl) typeEl.textContent = track.artist || getFileTypeText(track.ext);
-          const artEl = card.querySelector('.track-card-art');
-          if (artEl && track.cover && !card.classList.contains('selected')) {
-            let img = artEl.querySelector('img');
-            if (!img) {
-              img = document.createElement('img');
-              img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
-              artEl.insertBefore(img, artEl.firstChild);
+        // Обновляем DOM через requestAnimationFrame чтобы не блокировать UI
+        requestAnimationFrame(() => {
+          // Обновляем карточку в плейлисте
+          const card = playlistGrid?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
+          if (card) {
+            const titleEl = card.querySelector('.track-card-title');
+            if (titleEl) titleEl.textContent = track.name;
+            const typeEl = card.querySelector('.track-card-type span');
+            if (typeEl) typeEl.textContent = track.artist || getFileTypeText(track.ext);
+            const artEl = card.querySelector('.track-card-art');
+            if (artEl && track.cover && !card.classList.contains('selected')) {
+              let img = artEl.querySelector('img');
+              if (!img) {
+                img = document.createElement('img');
+                img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
+                img.loading = 'lazy';
+                artEl.insertBefore(img, artEl.firstChild);
+              }
+              img.src = track.cover;
             }
-            img.src = track.cover;
           }
-        }
-        // Обновляем player-bar если это текущий трек
-        if (tracks[currentIndex]?.path === track.path) {
-          trackNameEl.textContent = track.name;
-          trackArtistEl.textContent = track.artist || getFileTypeText(track.ext);
-          const playerArt = document.querySelector('.player-track-art');
-          if (playerArt && track.cover) {
-            let img = playerArt.querySelector('img');
-            if (!img) {
-              img = document.createElement('img');
-              playerArt.insertBefore(img, playerArt.firstChild);
+          // Обновляем player-bar если это текущий трек
+          if (tracks[currentIndex]?.path === track.path) {
+            trackNameEl.textContent = track.name;
+            trackArtistEl.textContent = track.artist || getFileTypeText(track.ext);
+            const playerArt = document.querySelector('.player-track-art');
+            if (playerArt && track.cover) {
+              let img = playerArt.querySelector('img');
+              if (!img) {
+                img = document.createElement('img');
+                playerArt.insertBefore(img, playerArt.firstChild);
+              }
+              img.src = track.cover;
             }
-            img.src = track.cover;
+            updateNowPlayingCard();
           }
-          updateNowPlayingCard();
-        }
-        // Обновляем недавние
-        const recentCard = recentCards?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
-        if (recentCard && track.cover) {
-          const artEl = recentCard.querySelector('.song-card-art');
-          if (artEl) {
-            let img = artEl.querySelector('img');
-            if (!img) {
-              img = document.createElement('img');
-              img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
-              artEl.insertBefore(img, artEl.firstChild);
+          // Обновляем недавние
+          const recentCard = recentCards?.querySelector(`[data-path="${CSS.escape(track.path)}"]`);
+          if (recentCard && track.cover) {
+            const artEl = recentCard.querySelector('.song-card-art');
+            if (artEl) {
+              let img = artEl.querySelector('img');
+              if (!img) {
+                img = document.createElement('img');
+                img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:8px;';
+                artEl.insertBefore(img, artEl.firstChild);
+              }
+              img.src = track.cover;
             }
-            img.src = track.cover;
+            const artistEl = recentCard.querySelector('.song-card-artist');
+            if (artistEl) artistEl.textContent = track.artist || getFileTypeText(track.ext);
           }
-          const artistEl = recentCard.querySelector('.song-card-artist');
-          if (artistEl) artistEl.textContent = track.artist || getFileTypeText(track.ext);
-        }
+        });
         // Сохраняем чтобы при следующем запуске не перезагружать
         saveDataDebounced();
       }
@@ -1219,19 +1340,24 @@ function loadTrackDurations() {
   const pending = tracks.filter(t => !t.duration && !t.path.startsWith('demo-'));
   if (!pending.length) return;
 
-  const CONCURRENCY = 4;
+  const CONCURRENCY = 3;
   let idx = 0;
   let renderScheduled = false;
+  let pendingRenderCount = 0;
 
   function scheduleRender() {
+    pendingRenderCount++;
     if (renderScheduled) return;
     renderScheduled = true;
+    // Рендерим не чаще раза в секунду при большом кол-ве треков
+    const delay = pending.length > 100 ? 1000 : 500;
     setTimeout(() => {
       renderScheduled = false;
+      pendingRenderCount = 0;
       if (currentPage === 'all-songs' || currentPage === 'liked' || currentPage === 'custom') {
         renderPlaylist();
       }
-    }, 500);
+    }, delay);
   }
 
   // Fallback: получить длительность через Audio элемент
@@ -1269,6 +1395,8 @@ function loadTrackDurations() {
       } catch {
         // Тихо игнорируем ошибки
       }
+      // Небольшая пауза между треками
+      await new Promise(r => setTimeout(r, 20));
     }
   }
 
@@ -1326,6 +1454,7 @@ function loadTrack(index) {
   updateActiveCardIcon();
   updateRecentlyPlaying();
   updateNowPlayingCard();
+  startMarquee();
 }
 
 // ===== ПЛЕЕР =====
@@ -1385,6 +1514,7 @@ function handlePrev() {
 function handleNext() {
   if (!tracks.length) return;
   if (repeatMode === 2) {
+    // Повтор одного трека
     audio.currentTime = 0;
     play();
     return;
@@ -1396,6 +1526,7 @@ function handleNext() {
     } while (next === currentIndex && tracks.length > 1);
     currentIndex = next;
   } else {
+    // Идём строго по порядку массива tracks
     currentIndex = (currentIndex + 1) % tracks.length;
   }
   loadTrack(currentIndex);
@@ -1403,11 +1534,26 @@ function handleNext() {
 }
 
 function handleTrackEnded() {
-  if (repeatMode === 1 || isShuffle) {
+  if (repeatMode === 2) {
+    // Повтор одного трека
+    audio.currentTime = 0;
+    play();
+    return;
+  }
+  if (repeatMode === 1) {
+    // Повтор всего списка
+    handleNext();
+    return;
+  }
+  // Обычный режим
+  if (isShuffle) {
     handleNext();
   } else if (currentIndex < tracks.length - 1) {
-    handleNext();
+    currentIndex++;
+    loadTrack(currentIndex);
+    play();
   } else {
+    // Конец списка
     pause();
     progressFill.style.width = '0%';
     currentTimeEl.textContent = '0:00';
@@ -1444,10 +1590,13 @@ let isDraggingProgress = false;
 let wasPlayingBeforeDrag = false;
 
 function setupDraggableProgress() {
+  // Клик и перетаскивание — работает и на паузе
   progressContainer.addEventListener('mousedown', (e) => {
     if (!audio.duration) return;
+    e.preventDefault();
     isDraggingProgress = true;
     wasPlayingBeforeDrag = isPlaying;
+    // Останавливаем воспроизведение на время перетаскивания
     if (isPlaying) { audio.pause(); stopProgress(); }
     progressFill.style.transition = 'none';
     seekProgress(e);
@@ -1462,13 +1611,60 @@ function setupDraggableProgress() {
     if (!isDraggingProgress) return;
     isDraggingProgress = false;
     progressFill.style.transition = '';
-    if (wasPlayingBeforeDrag) { audio.play().catch(() => {}); startProgress(); isPlaying = true; }
+    // Обновляем прогресс-бар на карточке
+    const npFill = document.getElementById('nowPlayingProgressFill');
+    const npCur = document.getElementById('nowPlayingTimeCurrent');
+    if (npFill && audio.duration) npFill.style.width = (audio.currentTime / audio.duration * 100) + '%';
+    if (npCur) npCur.textContent = formatTime(audio.currentTime);
+    // Возобновляем если играло
+    if (wasPlayingBeforeDrag) {
+      audio.play().catch(() => {});
+      startProgress();
+      isPlaying = true;
+      playIcon.className = 'fa-solid fa-pause';
+    }
+  });
+
+  // Touch support
+  progressContainer.addEventListener('touchstart', (e) => {
+    if (!audio.duration) return;
+    isDraggingProgress = true;
+    wasPlayingBeforeDrag = isPlaying;
+    if (isPlaying) { audio.pause(); stopProgress(); }
+    progressFill.style.transition = 'none';
+    seekProgressTouch(e);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!isDraggingProgress) return;
+    seekProgressTouch(e);
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!isDraggingProgress) return;
+    isDraggingProgress = false;
+    progressFill.style.transition = '';
+    if (wasPlayingBeforeDrag) {
+      audio.play().catch(() => {});
+      startProgress();
+      isPlaying = true;
+      playIcon.className = 'fa-solid fa-pause';
+    }
   });
 }
 
 function seekProgress(e) {
   const rect = progressContainer.getBoundingClientRect();
   const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  audio.currentTime = pct * audio.duration;
+  progressFill.style.width = (pct * 100) + '%';
+  currentTimeEl.textContent = formatTime(audio.currentTime);
+}
+
+function seekProgressTouch(e) {
+  if (!e.touches[0]) return;
+  const rect = progressContainer.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.touches[0].clientX - rect.left) / rect.width));
   audio.currentTime = pct * audio.duration;
   progressFill.style.width = (pct * 100) + '%';
   currentTimeEl.textContent = formatTime(audio.currentTime);
@@ -1489,15 +1685,27 @@ function handleSort(option) {
 function toggleShuffle() {
   isShuffle = !isShuffle;
   shuffleBtn.classList.toggle('active', isShuffle);
+  // Синхронизируем кнопку в карточке "Сейчас играет"
+  const npShuffle = document.getElementById('npShuffleBtn');
+  if (npShuffle) npShuffle.classList.toggle('active', isShuffle);
 }
 
 function toggleRepeat() {
   repeatMode = (repeatMode + 1) % 3;
-  repeatBtn.classList.toggle('active', repeatMode > 0);
-  repeatBtn.innerHTML = repeatMode === 2 
-    ? '<i class="fa-solid fa-repeat"></i><span style="position:absolute;font-size:8px;font-weight:700;">1</span>' 
-    : '<i class="fa-solid fa-repeat"></i>';
-  repeatBtn.style.position = repeatMode === 2 ? 'relative' : '';
+  updateRepeatBtn(repeatBtn);
+  const npRepeat = document.getElementById('npRepeatBtn');
+  if (npRepeat) updateRepeatBtn(npRepeat);
+}
+
+function updateRepeatBtn(btn) {
+  if (!btn) return;
+  btn.classList.toggle('active', repeatMode > 0);
+  if (repeatMode === 2) {
+    // Повтор одного трека — показываем "1"
+    btn.innerHTML = `<i class="fa-solid fa-repeat"></i><span class="repeat-one-badge">1</span>`;
+  } else {
+    btn.innerHTML = `<i class="fa-solid fa-repeat"></i>`;
+  }
 }
 
 function toggleLike() {
@@ -1798,7 +2006,7 @@ async function loadData() {
         audio.volume = lastVolume;
         updateVolumeUI();
         shuffleBtn.classList.toggle('active', isShuffle);
-        repeatBtn.classList.toggle('active', repeatMode > 0);
+        updateRepeatBtn(repeatBtn);
       }
       
       if (!playlists['all-songs']) {
@@ -1851,11 +2059,105 @@ window.saveSettingToggle = function(key, value) {
   if (key === 'animations') {
     document.body.classList.toggle('no-animations', !value);
   }
+  if (key === 'marquee') {
+    setMarqueeEnabled(value);
+  }
   showToast(value ? 'Включено' : 'Выключено');
 };
 
 function loadUIPreferences() {
-  // Ничего не применяем — масштаб и цвет фона убраны
+  // Загружаем настройку бегущей строки
+  const saved = localStorage.getItem('marqueeEnabled');
+  if (saved !== null) marqueeEnabled = saved !== 'false';
+  // Синхронизируем тоггл если он есть
+  const toggle = document.getElementById('marqueeToggle');
+  if (toggle) toggle.classList.toggle('on', marqueeEnabled);
+}
+
+// ===== БЕГУЩАЯ СТРОКА В PLAYER-BAR =====
+function startMarquee() {
+  stopMarquee();
+  if (!marqueeEnabled) return;
+
+  const nameEl = document.getElementById('trackName');
+  const artistEl = document.getElementById('trackArtist');
+  if (!nameEl || !artistEl) return;
+
+  // Запускаем с задержкой чтобы дать время отрисоваться
+  _marqueeTimers.start = setTimeout(() => {
+    animateMarqueeEl(nameEl, 1.0);   // нормальная скорость
+    animateMarqueeEl(artistEl, 0.5); // в 2 раза медленнее
+  }, 800);
+}
+
+function animateMarqueeEl(el, speedFactor) {
+  const container = el.closest('.player-track-details');
+  if (!container) return;
+
+  const containerW = container.offsetWidth;
+  const textW = el.scrollWidth;
+
+  // Если текст не переполняет — не анимируем
+  if (textW <= containerW + 2) {
+    el.style.transform = '';
+    el.style.transition = '';
+    return;
+  }
+
+  // Показываем fade
+  container.classList.add('marquee-active');
+
+  const overflow = textW - containerW;
+  // Скорость: 40px/сек базовая, умноженная на speedFactor
+  const duration = (overflow / 40) / speedFactor;
+
+  const key = el.id || ('el_' + Math.random().toString(36).slice(2));
+
+  function cycle() {
+    // Стоим на месте 1 секунду (начальная позиция — fade не нужен слева)
+    el.style.transition = 'none';
+    el.style.transform = 'translateX(0)';
+
+    _marqueeTimers[key] = setTimeout(() => {
+      // Едем влево
+      el.style.transition = `transform ${duration}s linear`;
+      el.style.transform = `translateX(-${overflow}px)`;
+
+      _marqueeTimers[key + '_back'] = setTimeout(() => {
+        // Пауза в конце 0.5с
+        _marqueeTimers[key + '_pause'] = setTimeout(() => {
+          // Возвращаемся
+          el.style.transition = `transform ${duration}s linear`;
+          el.style.transform = 'translateX(0)';
+
+          _marqueeTimers[key + '_cycle'] = setTimeout(cycle, duration * 1000 + 1000);
+        }, 500);
+      }, duration * 1000);
+    }, 1000);
+  }
+
+  cycle();
+}
+
+function stopMarquee() {
+  Object.values(_marqueeTimers).forEach(t => clearTimeout(t));
+  _marqueeTimers = {};
+  const nameEl = document.getElementById('trackName');
+  const artistEl = document.getElementById('trackArtist');
+  const details = document.querySelector('.player-track-details');
+  if (nameEl) { nameEl.style.transform = ''; nameEl.style.transition = 'transform 0.4s ease'; }
+  if (artistEl) { artistEl.style.transform = ''; artistEl.style.transition = 'transform 0.4s ease'; }
+  if (details) details.classList.remove('marquee-active');
+}
+
+function setMarqueeEnabled(enabled) {
+  marqueeEnabled = enabled;
+  localStorage.setItem('marqueeEnabled', enabled);
+  if (enabled) {
+    startMarquee();
+  } else {
+    stopMarquee();
+  }
 }
 
 function handleKeyDown(e) {

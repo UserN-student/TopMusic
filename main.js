@@ -67,7 +67,7 @@ app.whenReady().then(() => {
 
         const stream = fsSync.createReadStream(filePath, { start, end });
         const ext = path.extname(filePath).toLowerCase().slice(1);
-        const mime = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', wma: 'audio/x-ms-wma' }[ext] || 'audio/mpeg';
+        const mime = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', wma: 'audio/x-ms-wma', mp4: 'video/mp4' }[ext] || 'audio/mpeg';
 
         return new Response(stream, {
           status: 206,
@@ -83,7 +83,7 @@ app.whenReady().then(() => {
       // Full file
       const stream = fsSync.createReadStream(filePath);
       const ext = path.extname(filePath).toLowerCase().slice(1);
-      const mime = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', wma: 'audio/x-ms-wma' }[ext] || 'audio/mpeg';
+      const mime = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', wma: 'audio/x-ms-wma', mp4: 'video/mp4' }[ext] || 'audio/mpeg';
 
       return new Response(stream, {
         status: 200,
@@ -161,6 +161,17 @@ ipcMain.handle('open-folder-with-file', async (_, filePath) => {
     return true;
   } catch (e) {
     console.error('Show item error:', e);
+    return false;
+  }
+});
+
+// === Открыть папку с данными приложения ===
+ipcMain.handle('open-app-data-folder', async () => {
+  try {
+    shell.showItemInFolder(DATA_PATH);
+    return true;
+  } catch (e) {
+    console.error('Open app data folder error:', e);
     return false;
   }
 });

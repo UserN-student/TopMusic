@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAudioFilesInFolder: (folder) => ipcRenderer.invoke('get-audio-files-in-folder', folder),
   checkFileExists: (filePath) => ipcRenderer.invoke('check-file-exists', filePath),
   openFolderWithFile: (filePath) => ipcRenderer.invoke('open-folder-with-file', filePath),
+  openAppDataFolder: () => ipcRenderer.invoke('open-app-data-folder'),
   getFileUrl: (filePath) => ipcRenderer.invoke('get-file-url', filePath),
   
   // Данные

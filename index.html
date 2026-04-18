@@ -210,7 +210,13 @@
             flex: 1; min-height: 0; padding: 20px 20px; padding-bottom: 88px;
             display: none; flex-direction: column; overflow-y: scroll;
             min-width: 0; width: 100%; cursor: default;
+            scrollbar-width: auto;
+            scrollbar-color: rgba(255,255,255,0.2) transparent;
         }
+        .playlist-view::-webkit-scrollbar { width: 8px; }
+        .playlist-view::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 4px; }
+        .playlist-view::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+        .playlist-view::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); }
         .playlist-view.active { display: flex; }
         .playlist-header {
             display: flex; align-items: center; justify-content: space-between;
@@ -316,18 +322,70 @@
         .playlist-empty {
             text-align: center; padding: 60px 20px; color: #333;
             font-size: 13px; width: 100%;
+            /* Центрирование по всей странице с учётом сайдбара */
+            position: fixed;
+            top: 50%;
+            left: calc(260px + (100vw - 260px) / 2);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 1;
         }
         .playlist-empty i { font-size: 28px; margin-bottom: 10px; display: block; opacity: 0.3; }
+
+        /* Кнопка "Показать ещё" */
+        .load-more-btn {
+            grid-column: 1 / -1;
+            display: flex; justify-content: center; padding: 16px 0 8px;
+        }
+        .load-more-btn button {
+            display: flex; align-items: center; gap: 8px;
+            padding: 10px 24px; background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.09); border-radius: 10px;
+            color: #666; font-size: 12px; font-weight: 500; cursor: pointer;
+            transition: all 0.15s; font-family: 'Inter', sans-serif;
+        }
+        .load-more-btn button:hover { background: rgba(255,255,255,0.09); color: #ccc; }
 
         .recent-section {
             padding: 16px 20px 14px 20px;
             display: flex; flex-direction: column; flex-shrink: 0; min-width: 0; width: 100%;
         }
         .recent-section.hidden { display: none; }
-        .recent-cards {
-            display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px;
-            flex-shrink: 0; min-height: 200px;
+        /* Обёртка с fade-эффектом по краям */
+        .recent-cards-wrapper {
+            position: relative;
+            min-width: 0;
         }
+        .recent-cards-wrapper::before,
+        .recent-cards-wrapper::after {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 14px;
+            width: 48px;
+            z-index: 2;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .recent-cards-wrapper::before {
+            left: 0;
+            background: linear-gradient(to right, var(--bg-color, #0a0a0a) 0%, transparent 100%);
+        }
+        .recent-cards-wrapper::after {
+            right: 0;
+            background: linear-gradient(to left, var(--bg-color, #0a0a0a) 0%, transparent 100%);
+        }
+        .recent-cards-wrapper:has(.recent-cards.empty)::before,
+        .recent-cards-wrapper:has(.recent-cards.empty)::after { opacity: 0; }
+        .recent-cards {
+            display: flex; gap: 10px; overflow-x: auto; padding-bottom: 14px;
+            flex-shrink: 0; min-height: 200px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.18) transparent;
+        }
+        .recent-cards::-webkit-scrollbar { height: 8px; }
+        .recent-cards::-webkit-scrollbar-track { background: transparent; margin: 0 4px; }
+        .recent-cards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 10px; }
+        .recent-cards::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.26); }
         .recent-cards.empty {
             align-items: center; justify-content: center;
             background: rgba(255,255,255,0.015); border-radius: 12px;
@@ -471,22 +529,22 @@
         }
 
         .player-progress-container {
-            position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            position: absolute; top: 0; left: 0; right: 0; height: 4px;
             cursor: pointer; z-index: 30;
         }
-        .player-progress-container:hover { height: 4px; top: -1px; }
+        .player-progress-container:hover { height: 6px; top: -1px; }
         .player-progress-bg {
             position: absolute; top: 0; left: 0; right: 0; height: 100%;
-            background: rgba(255,255,255,0.06);
+            background: rgba(255,255,255,0.08);
         }
         .player-progress-fill {
             height: 100%; background: rgba(255,255,255,0.7); width: 0%; border-radius: 0;
             position: relative; transition: width 0.1s linear;
         }
         .player-progress-fill::after {
-            content: ''; position: absolute; right: -4px; top: 50%;
+            content: ''; position: absolute; right: -5px; top: 50%;
             transform: translateY(-50%) scale(0);
-            width: 10px; height: 10px; background: #fff; border-radius: 50%;
+            width: 12px; height: 12px; background: #fff; border-radius: 50%;
             transition: transform 0.12s ease;
         }
         .player-progress-container:hover .player-progress-fill::after {
@@ -498,7 +556,7 @@
 
         .player-track-info {
             display: flex; align-items: center; gap: 12px;
-            min-width: 0; flex: 0 1 260px;
+            min-width: 0; flex: 1 1 280px; max-width: 380px;
         }
         .player-track-art {
             width: 42px; height: 42px;
@@ -508,14 +566,24 @@
         }
         .player-track-art i { font-size: 15px; color: #444; }
         .player-track-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
-        .player-track-details { overflow: hidden; min-width: 0; flex: 1; }
+        .player-track-details { overflow: hidden; min-width: 0; flex: 1; position: relative; }
+        /* Fade по краям для бегущей строки */
+        .player-track-details::before,
+        .player-track-details::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 20px;
+            z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s;
+        }
+        .player-track-details::before { left: 0; background: linear-gradient(to right, rgba(10,10,10,0.97) 0%, transparent 100%); }
+        .player-track-details::after { right: 0; background: linear-gradient(to left, rgba(10,10,10,0.97) 0%, transparent 100%); }
+        .player-track-details.marquee-active::before,
+        .player-track-details.marquee-active::after { opacity: 1; }
         .player-track-name {
             font-size: 12px; font-weight: 600; white-space: nowrap;
-            overflow: hidden; text-overflow: ellipsis; color: #fff;
+            color: #fff; display: block;
         }
         .player-track-artist {
             font-size: 11px; color: #555; white-space: nowrap;
-            overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
+            margin-top: 1px; display: block;
         }
 
         .player-controls {
@@ -525,10 +593,16 @@
             background: none; border: none; color: #555; cursor: pointer;
             font-size: 14px; padding: 8px; border-radius: 8px;
             transition: all 0.15s; display: flex; align-items: center;
-            justify-content: center; flex-shrink: 0;
+            justify-content: center; flex-shrink: 0; position: relative;
         }
         .ctrl-btn:hover { color: #fff; background: rgba(255,255,255,0.06); }
         .ctrl-btn.active { color: #fff; }
+        /* Бейдж "1" для повтора одного трека */
+        .repeat-one-badge {
+            position: absolute; top: 2px; right: 2px;
+            font-size: 8px; font-weight: 800; color: #fff;
+            line-height: 1; pointer-events: none;
+        }
         .play-btn {
             width: 38px; height: 38px; background: #fff; border: none;
             border-radius: 50%; color: #000; font-size: 14px; cursor: pointer;
@@ -895,6 +969,14 @@
             display: flex; align-items: center; gap: 6px;
         }
         .settings-reset-btn:hover { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); }
+        .settings-open-folder-btn {
+            padding: 7px 12px; background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+            color: #777; font-size: 12px; cursor: pointer; transition: all 0.15s;
+            font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 6px;
+            flex-shrink: 0;
+        }
+        .settings-open-folder-btn:hover { background: rgba(255,255,255,0.09); color: #ccc; }
         .shortcuts-grid {
             display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px;
         }
@@ -1355,10 +1437,12 @@
                     <button class="clear-recent-btn" id="clearRecentBtn">Очистить</button>
                 </div>
             </div>
-            <div class="recent-cards empty" id="recentCards">
-                <div class="empty-message">
-                    <i class="fa-regular fa-circle-play"></i>
-                    Послушайте что-нибудь
+            <div class="recent-cards-wrapper">
+                <div class="recent-cards empty" id="recentCards">
+                    <div class="empty-message">
+                        <i class="fa-regular fa-circle-play"></i>
+                        Послушайте что-нибудь
+                    </div>
                 </div>
             </div>
         </div>
@@ -1414,18 +1498,9 @@
                     <div><div class="setting-label">Анимации интерфейса</div><div class="setting-desc">Плавные переходы и эффекты</div></div>
                     <div class="toggle-switch on" id="animationsToggle" onclick="this.classList.toggle('on'); saveSettingToggle('animations', this.classList.contains('on'))"></div>
                 </div>
-            </div>
-
-            <div class="settings-group sync-section">
-                <h4><i class="fa-solid fa-rotate"></i> Синхронизация папок</h4>
-                <p>Автоматическое отслеживание изменений в выбранных директориях. Новые файлы добавятся в указанные категории.</p>
-                <button class="sync-folder-btn" id="syncFolderBtn">
-                    <i class="fa-solid fa-folder-plus"></i> Выбрать папку
-                </button>
-                <div class="sync-list" id="syncListContent"></div>
-                <div class="sync-categories">
-                    <div class="sync-categories-title">Добавлять треки в категории:</div>
-                    <div id="syncCategoriesContent"></div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Бегущая строка</div><div class="setting-desc">Прокрутка длинных названий в плеере</div></div>
+                    <div class="toggle-switch on" id="marqueeToggle" onclick="this.classList.toggle('on'); saveSettingToggle('marquee', this.classList.contains('on'))"></div>
                 </div>
             </div>
 
@@ -1449,6 +1524,15 @@
                 <div class="setting-row" style="margin-top:12px;border:none">
                     <div><div class="setting-label">TopMusic</div><div class="setting-desc">Версия <span id="appVersion">1.1.2</span></div></div>
                 </div>
+                <div class="setting-row" style="border:none;padding-top:0">
+                    <div>
+                        <div class="setting-label">Местоположение приложения</div>
+                        <div class="setting-desc">Папка с данными и файлом настроек</div>
+                    </div>
+                    <button class="settings-open-folder-btn" id="openAppFolderBtn">
+                        <i class="fa-solid fa-folder-open"></i> Открыть
+                    </button>
+                </div>
                 <button class="settings-reset-btn" id="resetLibraryBtn">
                     <i class="fa-solid fa-trash-can"></i> Очистить библиотеку
                 </button>
@@ -1462,10 +1546,10 @@
             <div class="player-track-info">
                 <div class="player-track-art"><i class="fa-solid fa-music"></i></div>
                 <div class="player-track-details">
-                    <div class="player-track-name" id="trackName">Выберите трек</div>
-                    <div class="player-track-artist" id="trackArtist">—</div>
+                    <span class="player-track-name" id="trackName">Выберите трек</span>
+                    <span class="player-track-artist" id="trackArtist">—</span>
                 </div>
-                <button class="ctrl-btn" id="likeBtn"><i class="fa-regular fa-heart"></i></button>
+                <button class="ctrl-btn" id="likeBtn" style="flex-shrink:0"><i class="fa-regular fa-heart"></i></button>
             </div>
             <div class="player-controls">
                 <button class="ctrl-btn" id="shuffleBtn"><i class="fa-solid fa-shuffle"></i></button>

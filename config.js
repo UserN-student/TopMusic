@@ -1,11 +1,11 @@
 // Конфигурация приложения TopMusic
 const appConfig = {
-  version: '1.2.8',
+  version: '1.2.9',
   appName: 'TopMusic',
   minWindowWidth: 900,
   minWindowHeight: 600,
   defaultVolume: 0.7,
-  supportedFormats: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma']
+  supportedFormats: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'mp4']
 };
 
 // Для использования в Electron (main.js)
